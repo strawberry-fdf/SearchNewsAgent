@@ -5,7 +5,7 @@ import {
   Newspaper,
   Star,
   BarChart3,
-  Settings,
+  Settings2,
   Zap,
   ChevronLeft,
   ChevronRight,
@@ -25,6 +25,7 @@ const NAV_ITEMS = [
   { id: "starred", label: "收藏", icon: Star },
   { id: "stats", label: "数据面板", icon: BarChart3 },
   { id: "sources", label: "信源管理", icon: Database },
+  { id: "settings", label: "设置", icon: Settings2 },
 ];
 
 export default function Sidebar({ activeTab, onTabChange, stats }: SidebarProps) {

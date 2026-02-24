@@ -27,6 +27,7 @@ class Source(BaseModel):
     tags: List[str] = Field(default_factory=list, description="Custom tags, e.g. ['大佬blog']")
     enabled: bool = True
     fetch_interval_minutes: int = Field(default=30, description="Override global interval")
+    category: str = Field(default="", description="User-defined category for grouping sources")
 
     # ---- metadata ----
     last_fetched_at: Optional[datetime] = None

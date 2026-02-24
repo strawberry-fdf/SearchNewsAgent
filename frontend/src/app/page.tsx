@@ -5,6 +5,7 @@ import Sidebar from "@/components/Sidebar";
 import ArticleFeed from "@/components/ArticleFeed";
 import StatsPanel from "@/components/StatsPanel";
 import SourceManager from "@/components/SourceManager";
+import Settings from "@/components/Settings";
 import { getStats, type Stats } from "@/lib/api";
 
 export default function Home() {
@@ -31,6 +32,7 @@ export default function Home() {
         {activeTab === "starred" && <ArticleFeed mode="starred" />}
         {activeTab === "stats" && <StatsPanel />}
         {activeTab === "sources" && <SourceManager />}
+        {activeTab === "settings" && <Settings />}
       </main>
     </div>
   );

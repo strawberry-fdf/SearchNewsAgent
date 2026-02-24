@@ -79,7 +79,7 @@ async def _init_schema(db: aiosqlite.Connection):
         ai_relevance INTEGER,
         importance INTEGER,
         model_selected INTEGER DEFAULT 0,
-        tags TEXT, -- JSON list
+        tags TEXT, -- JSON list (LLM generated)
         status TEXT DEFAULT 'pending',
         rejection_reason TEXT,
         starred INTEGER DEFAULT 0,
@@ -89,6 +89,50 @@ async def _init_schema(db: aiosqlite.Connection):
         analysis_json TEXT -- Full analysis JSON backup
     );
     """)
+    await db.execute("""
+    CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    );
+    """)
+    await db.execute("""
+    CREATE TABLE IF NOT EXISTS interest_tags (
+        tag TEXT PRIMARY KEY,
+        created_at TEXT
+    );
+    """)
+    await db.execute("""
+    CREATE TABLE IF NOT EXISTS keyword_rules (
+        id TEXT PRIMARY KEY,
+        keyword TEXT NOT NULL,
+        field TEXT DEFAULT 'title',
+        enabled INTEGER DEFAULT 1,
+        created_at TEXT
+    );
+    """)
+    await db.execute("""
+    CREATE TABLE IF NOT EXISTS pipeline_runs (
+        id TEXT PRIMARY KEY,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        logs TEXT DEFAULT '[]',
+        stats TEXT DEFAULT '{}',
+        status TEXT DEFAULT 'running'
+    );
+    """)
+
+    # ── Migrations: add columns to existing tables ──
+    migration_stmts = [
+        "ALTER TABLE sources ADD COLUMN category TEXT DEFAULT ''",
+        "ALTER TABLE articles ADD COLUMN raw_title TEXT",
+        "ALTER TABLE articles ADD COLUMN user_tags TEXT DEFAULT '[]'",
+    ]
+    for stmt in migration_stmts:
+        try:
+            await db.execute(stmt)
+        except Exception:
+            pass  # Column already exists
+
     await db.commit()
 
 
@@ -99,17 +143,27 @@ async def _init_schema(db: aiosqlite.Connection):
 def _row_to_dict(row: aiosqlite.Row) -> Dict[str, Any]:
     d = dict(row)
     # Parse JSON fields
-    for k in ["tags", "analysis_json"]:
+    for k in ["tags", "user_tags"]:
         if k in d and d[k]:
             try:
                 d[k] = json.loads(d[k])
             except:
                 pass
-    
+        elif k in d and not d[k]:
+            d[k] = []
+    if "analysis_json" in d:
+        if d["analysis_json"]:
+            try:
+                d["analysis_json"] = json.loads(d["analysis_json"])
+            except:
+                d["analysis_json"] = None
+        else:
+            d["analysis_json"] = None
+
     # Restore 'analysis' nested dict from analysis_json if present
     if "analysis_json" in d:
         d["analysis"] = d.pop("analysis_json")
-    
+
     # Convert booleans
     for k in ["enabled", "model_selected", "starred"]:
         if k in d:
@@ -137,11 +191,12 @@ async def upsert_source(doc: Dict[str, Any]) -> str:
         src_id = row[0]
         await db.execute("""
             UPDATE sources SET 
-                name=?, source_type=?, tags=?, enabled=?, fetch_interval_minutes=?
+                name=?, source_type=?, tags=?, enabled=?, fetch_interval_minutes=?, category=?
             WHERE id=?
         """, (
-            doc.get("name"), doc.get("source_type"), tags_json, 
+            doc.get("name"), doc.get("source_type"), tags_json,
             doc.get("enabled", True), doc.get("fetch_interval_minutes", 30),
+            doc.get("category", ""),
             src_id
         ))
         await db.commit()
@@ -149,11 +204,12 @@ async def upsert_source(doc: Dict[str, Any]) -> str:
     else:
         src_id = str(uuid.uuid4())
         await db.execute("""
-            INSERT INTO sources (id, url, name, source_type, tags, enabled, fetch_interval_minutes, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO sources (id, url, name, source_type, tags, enabled, fetch_interval_minutes, category, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            src_id, url, doc.get("name"), doc.get("source_type"), 
+            src_id, url, doc.get("name"), doc.get("source_type"),
             tags_json, doc.get("enabled", True), doc.get("fetch_interval_minutes", 30),
+            doc.get("category", ""),
             now_iso
         ))
         await db.commit()
@@ -198,19 +254,17 @@ async def article_exists(url_hash: str) -> bool:
 async def insert_article(doc: Dict[str, Any]) -> str:
     db = await get_db()
     art_id = str(uuid.uuid4())
-    
-    # Flatten analysis fields if present (usually None on insert)
-    analysis = doc.get("analysis", {}) or {}
-    
+
     await db.execute("""
         INSERT INTO articles (
-            id, url_hash, url, source_id, source_name, 
-            raw_html, clean_markdown, status, rejection_reason, 
+            id, url_hash, url, source_id, source_name,
+            raw_html, clean_markdown, raw_title, status, rejection_reason,
             starred, fetched_at, published_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         art_id, doc["url_hash"], doc["url"], doc.get("source_id"), doc.get("source_name"),
-        doc.get("raw_html"), doc.get("clean_markdown"), doc.get("status", "pending"),
+        doc.get("raw_html"), doc.get("clean_markdown"), doc.get("raw_title"),
+        doc.get("status", "pending"),
         doc.get("rejection_reason"), doc.get("starred", False),
         doc.get("fetched_at", datetime.now(timezone.utc)).isoformat(),
         doc.get("published_at").isoformat() if doc.get("published_at") else None
@@ -264,20 +318,58 @@ async def get_pending_articles(limit: int = 50) -> List[Dict[str, Any]]:
     return [_row_to_dict(row) for row in rows]
 
 
-async def get_selected_articles(skip: int = 0, limit: int = 30, category: Optional[str] = None) -> List[Dict[str, Any]]:
+async def get_selected_articles(
+    skip: int = 0,
+    limit: int = 30,
+    category: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    keyword: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     db = await get_db()
     sql = "SELECT * FROM articles WHERE status = 'selected'"
     params = []
     if category:
         sql += " AND category = ?"
         params.append(category)
-    
+    if tags:
+        tag_clauses = []
+        for tag in tags:
+            tag_clauses.append("(tags LIKE ? OR user_tags LIKE ?)")
+            params.extend([f'%"{tag}"%', f'%"{tag}"%'])
+        sql += " AND (" + " OR ".join(tag_clauses) + ")"
+    if keyword:
+        sql += " AND (title LIKE ? OR raw_title LIKE ?)"
+        params.extend([f"%{keyword}%", f"%{keyword}%"])
     sql += " ORDER BY fetched_at DESC LIMIT ? OFFSET ?"
     params.extend([limit, skip])
-    
     cursor = await db.execute(sql, tuple(params))
     rows = await cursor.fetchall()
     return [_row_to_dict(row) for row in rows]
+
+
+async def count_selected_articles(
+    category: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    keyword: Optional[str] = None,
+) -> int:
+    db = await get_db()
+    sql = "SELECT COUNT(*) FROM articles WHERE status = 'selected'"
+    params = []
+    if category:
+        sql += " AND category = ?"
+        params.append(category)
+    if tags:
+        tag_clauses = []
+        for tag in tags:
+            tag_clauses.append("(tags LIKE ? OR user_tags LIKE ?)")
+            params.extend([f'%"{tag}"%', f'%"{tag}"%'])
+        sql += " AND (" + " OR ".join(tag_clauses) + ")"
+    if keyword:
+        sql += " AND (title LIKE ? OR raw_title LIKE ?)"
+        params.extend([f"%{keyword}%", f"%{keyword}%"])
+    cursor = await db.execute(sql, tuple(params))
+    row = await cursor.fetchone()
+    return row[0] if row else 0
 
 
 async def get_all_articles(skip: int = 0, limit: int = 50, status: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -321,3 +413,212 @@ async def toggle_star(url_hash: str) -> bool:
     await db.execute("UPDATE articles SET starred = ? WHERE url_hash = ?", (1 if new_state else 0, url_hash))
     await db.commit()
     return new_state
+
+
+# ──────────────────────────────────────────────────────────────
+# Source update
+# ──────────────────────────────────────────────────────────────
+
+async def update_source(source_id: str, updates: Dict[str, Any]) -> bool:
+    db = await get_db()
+    allowed = {"enabled", "category", "name", "tags", "fetch_interval_minutes"}
+    set_clauses = []
+    params = []
+    for k, v in updates.items():
+        if k not in allowed:
+            continue
+        set_clauses.append(f"{k} = ?")
+        if k == "tags" and isinstance(v, list):
+            params.append(json.dumps(v))
+        elif isinstance(v, bool):
+            params.append(1 if v else 0)
+        else:
+            params.append(v)
+    if not set_clauses:
+        return False
+    params.append(source_id)
+    sql = f"UPDATE sources SET {', '.join(set_clauses)} WHERE id = ?"
+    cursor = await db.execute(sql, tuple(params))
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+# ──────────────────────────────────────────────────────────────
+# Settings
+# ──────────────────────────────────────────────────────────────
+
+_SETTINGS_DEFAULTS: Dict[str, Any] = {
+    "llm_enabled": True,
+    "llm_filter_prompt": "",
+}
+
+
+async def get_settings() -> Dict[str, Any]:
+    db = await get_db()
+    cursor = await db.execute("SELECT key, value FROM settings")
+    rows = await cursor.fetchall()
+    result = dict(_SETTINGS_DEFAULTS)  # start with defaults
+    for row in rows:
+        try:
+            result[row[0]] = json.loads(row[1])
+        except Exception:
+            result[row[0]] = row[1]
+    return result
+
+
+async def set_setting(key: str, value: Any) -> None:
+    db = await get_db()
+    await db.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+        (key, json.dumps(value)),
+    )
+    await db.commit()
+
+
+# ──────────────────────────────────────────────────────────────
+# Interest tags
+# ──────────────────────────────────────────────────────────────
+
+async def get_interest_tags() -> List[str]:
+    db = await get_db()
+    cursor = await db.execute("SELECT tag FROM interest_tags ORDER BY created_at")
+    rows = await cursor.fetchall()
+    return [row[0] for row in rows]
+
+
+async def add_interest_tag(tag: str) -> None:
+    db = await get_db()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.execute(
+        "INSERT OR IGNORE INTO interest_tags (tag, created_at) VALUES (?, ?)",
+        (tag, now_iso),
+    )
+    await db.commit()
+
+
+async def delete_interest_tag(tag: str) -> bool:
+    db = await get_db()
+    cursor = await db.execute("DELETE FROM interest_tags WHERE tag = ?", (tag,))
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+# ──────────────────────────────────────────────────────────────
+# Keyword rules
+# ──────────────────────────────────────────────────────────────
+
+async def get_keyword_rules() -> List[Dict[str, Any]]:
+    db = await get_db()
+    cursor = await db.execute("SELECT * FROM keyword_rules ORDER BY created_at")
+    rows = await cursor.fetchall()
+    return [_row_to_dict(row) for row in rows]
+
+
+async def add_keyword_rule(keyword: str, field: str = "title") -> str:
+    db = await get_db()
+    rule_id = str(uuid.uuid4())
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.execute(
+        "INSERT INTO keyword_rules (id, keyword, field, enabled, created_at) VALUES (?, ?, ?, 1, ?)",
+        (rule_id, keyword, field, now_iso),
+    )
+    await db.commit()
+    return rule_id
+
+
+async def delete_keyword_rule(rule_id: str) -> bool:
+    db = await get_db()
+    cursor = await db.execute("DELETE FROM keyword_rules WHERE id = ?", (rule_id,))
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+async def toggle_keyword_rule(rule_id: str) -> bool:
+    db = await get_db()
+    cursor_fetch = await db.execute("SELECT enabled FROM keyword_rules WHERE id = ?", (rule_id,))
+    row = await cursor_fetch.fetchone()
+    if not row:
+        return False
+    new_val = 0 if row[0] else 1
+    await db.execute("UPDATE keyword_rules SET enabled = ? WHERE id = ?", (new_val, rule_id))
+    await db.commit()
+    return bool(new_val)
+
+
+# ──────────────────────────────────────────────────────────────
+# Article user tags
+# ──────────────────────────────────────────────────────────────
+
+async def update_article_user_tags(url_hash: str, tags: List[str]) -> bool:
+    db = await get_db()
+    cursor = await db.execute(
+        "UPDATE articles SET user_tags = ? WHERE url_hash = ?",
+        (json.dumps(tags), url_hash),
+    )
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+async def delete_article(url_hash: str) -> bool:
+    db = await get_db()
+    cursor = await db.execute("DELETE FROM articles WHERE url_hash = ?", (url_hash,))
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+async def delete_articles_batch(url_hashes: List[str]) -> int:
+    db = await get_db()
+    placeholders = ",".join(["?"] * len(url_hashes))
+    cursor = await db.execute(
+        f"DELETE FROM articles WHERE url_hash IN ({placeholders})", url_hashes
+    )
+    await db.commit()
+    return cursor.rowcount
+
+
+# ──────────────────────────────────────────────────────────────
+# Pipeline run history
+# ──────────────────────────────────────────────────────────────
+
+async def save_pipeline_run(
+    run_id: str,
+    started_at: str,
+    finished_at: str,
+    logs: List[str],
+    stats: Dict[str, Any],
+    status: str = "done",
+) -> None:
+    db = await get_db()
+    await db.execute(
+        """
+        INSERT OR REPLACE INTO pipeline_runs (id, started_at, finished_at, logs, stats, status)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (run_id, started_at, finished_at, json.dumps(logs), json.dumps(stats), status),
+    )
+    await db.commit()
+
+
+async def get_pipeline_runs(limit: int = 50) -> List[Dict[str, Any]]:
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT * FROM pipeline_runs ORDER BY started_at DESC LIMIT ?", (limit,)
+    )
+    rows = await cursor.fetchall()
+    result = []
+    for row in rows:
+        d = dict(row)
+        for k in ["logs", "stats"]:
+            try:
+                d[k] = json.loads(d[k]) if d[k] else ([] if k == "logs" else {})
+            except Exception:
+                d[k] = [] if k == "logs" else {}
+        result.append(d)
+    return result
+
+
+async def delete_pipeline_run(run_id: str) -> bool:
+    db = await get_db()
+    cursor = await db.execute("DELETE FROM pipeline_runs WHERE id = ?", (run_id,))
+    await db.commit()
+    return cursor.rowcount > 0

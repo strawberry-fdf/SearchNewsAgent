@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from backend.config import settings
 from backend.ingestion.dedup import url_hash
@@ -22,74 +22,99 @@ from backend.storage import db as mongo
 logger = logging.getLogger(__name__)
 
 
-async def run_ingestion_pipeline() -> Dict[str, int]:
-    """
-    Execute the full pipeline:
-      1. Fetch all enabled sources
-      2. Collect new articles (skip duplicates)
-      3. Run LLM analysis on pending articles
-      4. Apply rules engine
-      5. Send notifications for selected articles
+async def run_ingestion_pipeline(
+    progress_cb: Optional[Callable[[str], None]] = None,
+    filter_prompt: str = "",
+) -> Dict[str, int]:
+    """Run pipeline. progress_cb(msg) is called at key steps."""
 
-    Returns a summary dict with counts.
-    """
+    def emit(msg: str):
+        logger.info(msg)
+        if progress_cb:
+            progress_cb(msg)
+
     stats = {"fetched": 0, "duplicates": 0, "analysed": 0, "selected": 0, "rejected": 0, "errors": 0}
 
     # ── Step 1: Fetch sources ──
     sources = await mongo.get_all_sources(enabled_only=True)
     if not sources:
-        logger.warning("No enabled sources configured. Add sources via API or seed script.")
+        emit("⚠️ 没有启用的信源，请先添加信源")
         return stats
 
-    logger.info("Starting ingestion pipeline with %d sources...", len(sources))
+    emit(f"🚀 开始采集，共 {len(sources)} 个信源")
 
     # ── Step 2: Collect articles from each source ──
     for source in sources:
         source_type = source.get("source_type", "rss")
         source_url = source["url"]
-        # SQLite uses 'id', MongoDB uses '_id'
         source_id = str(source.get("id") or source.get("_id") or "")
         source_name = source.get("name", "")
-        source_tags = source.get("tags") or []  # Ensure list
+        source_tags = source.get("tags") or []
 
         try:
+            emit(f"📡 正在抓取: {source_name}")
             if source_type == "rss":
                 articles = await fetch_rss_feed(source_url, source_id, source_name)
             elif source_type == "web":
                 articles = await scrape_web_page(source_url, source_id, source_name)
             else:
-                logger.warning("Unsupported source type: %s for %s", source_type, source_url)
+                emit(f"⚠️ 不支持的信源类型: {source_type}")
                 continue
 
-            # Insert new articles (dedup by url_hash)
+            new_count = 0
+            dup_count = 0
             for article in articles:
                 h = article["url_hash"]
                 if await mongo.article_exists(h):
+                    dup_count += 1
                     stats["duplicates"] += 1
                     continue
-
                 await mongo.insert_article(article)
                 stats["fetched"] += 1
+                new_count += 1
 
-            # Update last fetch timestamp
             await mongo.update_source_last_fetched(source_url)
+            emit(f"   ✅ {source_name}: 新增 {new_count} 篇，重复 {dup_count} 篇")
 
         except Exception as exc:
+            emit(f"   ❌ 抓取失败 {source_name}: {exc}")
             logger.error("Error fetching source %s: %s", source_url, exc, exc_info=True)
             stats["errors"] += 1
 
-    logger.info("Ingestion complete: %d new, %d duplicates", stats["fetched"], stats["duplicates"])
+    emit(f"📥 抓取完成: 新增 {stats['fetched']} 篇，重复 {stats['duplicates']} 篇")
 
     # ── Step 3 & 4: Analyse pending articles ──
     pending = await mongo.get_pending_articles(limit=100)
-    logger.info("Analysing %d pending articles...", len(pending))
+    emit(f"🤖 待分析文章: {len(pending)} 篇")
 
-    for doc in pending:
+    app_settings = await mongo.get_settings()
+    llm_enabled: bool = app_settings.get("llm_enabled", True)
+    # Use per-run filter_prompt if provided, else fall back to setting
+    active_filter_prompt = filter_prompt or app_settings.get("llm_filter_prompt", "")
+
+    if not llm_enabled:
+        emit("⚡ LLM 已关闭 – 全部文章直接入选")
+        for doc in pending:
+            raw_title = doc.get("raw_title") or doc.get("title") or doc.get("url", "")
+            await mongo.update_article(doc["url_hash"], {
+                "status": "selected",
+                "rejection_reason": "",
+                "analyzed_at": datetime.now(timezone.utc),
+                "title": raw_title,
+            })
+            stats["selected"] += 1
+        emit(f"✅ 完成 (LLM 关闭): 抓取={stats['fetched']}, 入选={stats['selected']}")
+        return stats
+
+    for idx, doc in enumerate(pending, 1):
         content = doc.get("clean_markdown") or doc.get("raw_html", "")
         h = doc["url_hash"]
+        title_preview = (doc.get("raw_title") or doc.get("url", ""))[:60]
+
+        emit(f"🔍 [{idx}/{len(pending)}] 分析: {title_preview}")
 
         if not content.strip():
-            logger.warning("Skipping article with empty content: %s", doc.get("url"))
+            emit(f"   ⚠️ 内容为空，跳过")
             await mongo.update_article(h, {
                 "status": "rejected",
                 "rejection_reason": "REJECTED_EMPTY_CONTENT",
@@ -98,10 +123,9 @@ async def run_ingestion_pipeline() -> Dict[str, int]:
             stats["rejected"] += 1
             continue
 
-        # ── LLM analysis ──
-        analysis = await analyse_article(content)
+        analysis = await analyse_article(content, filter_prompt=active_filter_prompt)
         if analysis is None:
-            logger.warning("LLM analysis failed for %s, sending to dead letter", doc.get("url"))
+            emit(f"   ❌ LLM 分析失败")
             await mongo.update_article(h, {
                 "status": "rejected",
                 "rejection_reason": "REJECTED_LLM_FAILURE",
@@ -113,8 +137,6 @@ async def run_ingestion_pipeline() -> Dict[str, int]:
         stats["analysed"] += 1
         analysis_dict = analysis.model_dump()
 
-        # ── Rules engine ──
-        # Look up source tags for VIP whitelist logic
         source_id = doc.get("source_id")
         source_tags = []
         if source_id:
@@ -127,7 +149,6 @@ async def run_ingestion_pipeline() -> Dict[str, int]:
 
         status, reason = evaluate_article(analysis_dict, source_tags)
 
-        # ── Update article ──
         await mongo.update_article(h, {
             "analysis": analysis_dict,
             "status": status,
@@ -137,7 +158,7 @@ async def run_ingestion_pipeline() -> Dict[str, int]:
 
         if status == "selected":
             stats["selected"] += 1
-            # ── Notification ──
+            emit(f"   ✅ 入选 [{analysis.category}] {analysis.title[:50]}")
             try:
                 await send_feishu_notification(
                     title=analysis.title,
@@ -151,9 +172,11 @@ async def run_ingestion_pipeline() -> Dict[str, int]:
                 logger.error("Notification failed for %s: %s", doc.get("url"), exc)
         else:
             stats["rejected"] += 1
+            emit(f"   🚫 过滤 ({reason})")
 
-    logger.info(
-        "Pipeline complete: fetched=%d, analysed=%d, selected=%d, rejected=%d, errors=%d",
-        stats["fetched"], stats["analysed"], stats["selected"], stats["rejected"], stats["errors"],
+    emit(
+        f"🎉 完成! 抓取={stats['fetched']}, 分析={stats['analysed']}, "
+        f"入选={stats['selected']}, 过滤={stats['rejected']}, 错误={stats['errors']}"
     )
     return stats
+

@@ -4,8 +4,20 @@ __pycache__/
 *.pyc
 .pyo
 
+# Python virtual environment
+backend/venv/
+venv/
+.venv/
+
+# Database files
+*.db
+*.sqlite3
+
+# Build artifacts
+*.tsbuildinfo
+backend/package-lock.json
+
 # Environment
-.env
 backend/.env
 
 # Build outputs

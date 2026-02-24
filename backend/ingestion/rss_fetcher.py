@@ -43,7 +43,13 @@ async def fetch_rss_feed(
             resp.raise_for_status()
             raw_xml = resp.text
     except Exception as exc:
-        logger.error("Failed to fetch RSS feed %s: %s", feed_url, exc)
+        logger.error(
+            "Failed to fetch RSS feed %s: [%s] %s",
+            feed_url,
+            type(exc).__name__,
+            exc,
+            exc_info=True,
+        )
         return articles
 
     feed = feedparser.parse(raw_xml)
@@ -75,6 +81,7 @@ async def fetch_rss_feed(
             "source_name": source_name or feed.feed.get("title", ""),
             "raw_html": raw_html,
             "clean_markdown": clean_markdown,
+            "raw_title": entry.get("title", "").strip(),
             "status": "pending",
             "starred": False,
             "fetched_at": datetime.now(timezone.utc),

@@ -38,7 +38,7 @@ def _truncate_content(text: str, max_tokens: int) -> str:
 # Provider implementations
 # ──────────────────────────────────────────────────────────────
 
-async def _call_openai(content: str) -> str:
+async def _call_openai(content: str, system_prompt: str) -> str:
     """Call OpenAI API and return raw response text."""
     from openai import AsyncOpenAI
 
@@ -50,7 +50,7 @@ async def _call_openai(content: str) -> str:
     response = await client.chat.completions.create(
         model=settings.OPENAI_MODEL,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": USER_PROMPT_TEMPLATE.format(content=content)},
         ],
         temperature=0.3,
@@ -60,7 +60,7 @@ async def _call_openai(content: str) -> str:
     return response.choices[0].message.content or ""
 
 
-async def _call_anthropic(content: str) -> str:
+async def _call_anthropic(content: str, system_prompt: str) -> str:
     """Call Anthropic API and return raw response text."""
     from anthropic import AsyncAnthropic
 
@@ -69,7 +69,7 @@ async def _call_anthropic(content: str) -> str:
     response = await client.messages.create(
         model=settings.ANTHROPIC_MODEL,
         max_tokens=1024,
-        system=SYSTEM_PROMPT,
+        system=system_prompt,
         messages=[
             {"role": "user", "content": USER_PROMPT_TEMPLATE.format(content=content)},
         ],
@@ -84,14 +84,25 @@ async def _call_anthropic(content: str) -> str:
 # Public API
 # ──────────────────────────────────────────────────────────────
 
-async def analyse_article(content: str) -> Optional[LLMAnalysis]:
+async def analyse_article(content: str, filter_prompt: str = "") -> Optional[LLMAnalysis]:
     """
     Send article content to the configured LLM and return a validated
     LLMAnalysis object, or None if extraction / validation fails.
+    filter_prompt: optional additional filtering instructions appended to the system prompt.
     """
     if not content or not content.strip():
         logger.warning("Empty content received, skipping LLM analysis.")
         return None
+
+    # Build system prompt
+    system_prompt = SYSTEM_PROMPT
+    if filter_prompt and filter_prompt.strip():
+        system_prompt = SYSTEM_PROMPT + f"""
+
+补充筛选要求（用户自定义）：
+{filter_prompt.strip()}
+
+在判断 model_selected 时，请重点参考上述补充要求。"""
 
     # Truncate to stay within token budget
     truncated = _truncate_content(content, settings.MAX_CONTENT_TOKENS)
@@ -99,9 +110,9 @@ async def analyse_article(content: str) -> Optional[LLMAnalysis]:
     try:
         provider = settings.LLM_PROVIDER.lower()
         if provider == "openai":
-            raw_json = await _call_openai(truncated)
+            raw_json = await _call_openai(truncated, system_prompt)
         elif provider == "anthropic":
-            raw_json = await _call_anthropic(truncated)
+            raw_json = await _call_anthropic(truncated, system_prompt)
         else:
             logger.error("Unknown LLM provider: %s", provider)
             return None
