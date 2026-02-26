@@ -1,8 +1,14 @@
 """
-Seed script – populates the sources collection with a curated list of
-AI/ML news RSS feeds and web sources for initial setup.
+种子数据脚本 —— 初始化系统默认的 AI/ML 新闻信源列表。
 
-Usage:
+包含精心筛选的 RSS 源和网页信源，涵盖:
+- 官方博客（OpenAI、Google AI、Anthropic）
+- 开源社区（Hugging Face）
+- 行业媒体（MIT Technology Review）
+- 学术论文（Arxiv CS.AI）
+- 社区讨论（Hacker News AI 话题）
+
+运行方式:
     python -m backend.seed
 """
 

@@ -1,3 +1,7 @@
+/**
+ * 信源管理页面 —— 列表展示所有信源，支持启用/禁用、新增、删除、编辑属性。
+ * 支持按分类筛选、设置 fetch_since 日期範围。
+ */
 "use client";
 
 import { useEffect, useState } from "react";
@@ -115,13 +119,22 @@ function SourceRow({
   source,
   onToggleEnabled,
   onUpdateCategory,
+  onUpdateFetchSince,
   onDelete,
 }: {
   source: Source;
   onToggleEnabled: (id: string, enabled: boolean) => void;
   onUpdateCategory: (id: string, category: string) => void;
+  onUpdateFetchSince: (id: string, fetchSince: string | null) => void;
   onDelete: (url: string) => void;
 }) {
+  const [editingSince, setEditingSince] = useState(false);
+  const [sinceDraft, setSinceDraft] = useState(source.fetch_since?.split("T")[0] ?? "");
+
+  function saveFetchSince() {
+    onUpdateFetchSince(source.id, sinceDraft.trim() || null);
+    setEditingSince(false);
+  }
   return (
     <div
       className={clsx(
@@ -156,6 +169,37 @@ function SourceRow({
             onSave={(v) => onUpdateCategory(source.id, v)}
             className="text-xs"
           />
+        </div>
+        <div className="mt-1 flex items-center gap-1 text-xs text-dark-muted">
+          <span>采集起始日：</span>
+          {editingSince ? (
+            <span className="flex items-center gap-1">
+              <input
+                type="date"
+                value={sinceDraft}
+                onChange={(e) => setSinceDraft(e.target.value)}
+                className="bg-dark-surface border border-dark-accent rounded px-2 py-0.5 text-xs focus:outline-none"
+              />
+              <button onClick={saveFetchSince} className="text-emerald-400 hover:text-emerald-300">
+                <Check size={12} />
+              </button>
+              <button onClick={() => setEditingSince(false)} className="text-dark-muted hover:text-dark-text">
+                <X size={12} />
+              </button>
+            </span>
+          ) : (
+            <button
+              onClick={() => { setSinceDraft(source.fetch_since?.split("T")[0] ?? ""); setEditingSince(true); }}
+              className="cursor-pointer hover:text-dark-accent transition-colors flex items-center gap-1"
+              title="点击设置采集起始日"
+            >
+              {source.fetch_since
+                ? source.fetch_since.split("T")[0]
+                : <span className="text-dark-muted italic">全部接收（点击设置）</span>
+              }
+              <Pencil size={11} className="opacity-40" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -205,6 +249,7 @@ function CategoryGroup({
   defaultOpen = true,
   onToggleEnabled,
   onUpdateCategory,
+  onUpdateFetchSince,
   onDelete,
   onRenameCategory,
 }: {
@@ -213,6 +258,7 @@ function CategoryGroup({
   defaultOpen?: boolean;
   onToggleEnabled: (id: string, enabled: boolean) => void;
   onUpdateCategory: (id: string, category: string) => void;
+  onUpdateFetchSince: (id: string, fetchSince: string | null) => void;
   onDelete: (url: string) => void;
   onRenameCategory: (oldName: string, newName: string) => void;
 }) {
@@ -252,6 +298,7 @@ function CategoryGroup({
               source={s}
               onToggleEnabled={onToggleEnabled}
               onUpdateCategory={onUpdateCategory}
+              onUpdateFetchSince={onUpdateFetchSince}
               onDelete={onDelete}
             />
           ))}
@@ -274,6 +321,7 @@ export default function SourceManager() {
   const [newType, setNewType] = useState("rss");
   const [newTags, setNewTags] = useState("");
   const [newCategory, setNewCategory] = useState("");
+  const [newFetchSince, setNewFetchSince] = useState("");
 
   useEffect(() => {
     loadSources();
@@ -300,8 +348,9 @@ export default function SourceManager() {
         source_type: newType,
         tags: newTags.split(",").map((t) => t.trim()).filter(Boolean),
         category: newCategory.trim(),
+        fetch_since: newFetchSince.trim() || null,
       });
-      setNewName(""); setNewUrl(""); setNewTags(""); setNewCategory("");
+      setNewName(""); setNewUrl(""); setNewTags(""); setNewCategory(""); setNewFetchSince("");
       setShowAdd(false);
       await loadSources();
     } catch (err) {
@@ -325,6 +374,17 @@ export default function SourceManager() {
       await updateSource(id, { category });
       setSources((prev) =>
         prev.map((s) => (s.id === id ? { ...s, category } : s))
+      );
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleUpdateFetchSince(id: string, fetchSince: string | null) {
+    try {
+      await updateSource(id, { fetch_since: fetchSince });
+      setSources((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, fetch_since: fetchSince } : s))
       );
     } catch (err) {
       console.error(err);
@@ -456,6 +516,18 @@ export default function SourceManager() {
                 className="w-full bg-dark-surface border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent"
               />
             </div>
+            <div>
+              <label className="text-xs text-dark-muted mb-1 block">
+                采集起始日期（留空=全部接收）
+              </label>
+              <input
+                type="date"
+                value={newFetchSince}
+                onChange={(e) => setNewFetchSince(e.target.value)}
+                className="w-full bg-dark-surface border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent"
+              />
+              <p className="text-xs text-dark-muted mt-1">仅处理该日期之后发布的文章</p>
+            </div>
           </div>
           <div className="flex justify-end gap-3">
             <button
@@ -494,6 +566,7 @@ export default function SourceManager() {
               defaultOpen={true}
               onToggleEnabled={handleToggleEnabled}
               onUpdateCategory={handleUpdateCategory}
+              onUpdateFetchSince={handleUpdateFetchSince}
               onDelete={handleDelete}
               onRenameCategory={handleRenameCategory}
             />

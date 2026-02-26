@@ -1,3 +1,6 @@
+/**
+ * 侧边栏导航组件 —— 图标导航 + 统计数字徽章，支持移动端收起/展开。
+ */
 "use client";
 
 import { useState } from "react";

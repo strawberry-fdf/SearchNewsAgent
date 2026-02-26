@@ -1,6 +1,10 @@
 """
-Source (信源) data model – represents an RSS feed, API endpoint, or web page
-that the system monitors for new articles.
+信源 (Source) 数据模型 —— 表示系统监控的单个信息源。
+
+支持类型:
+- RSS: 常规 RSS/Atom Feed
+- API: 第三方 API 接口（如 GitHub Trending）
+- Web: 网页爬取目标（如 Anthropic Newsroom）
 """
 
 from __future__ import annotations

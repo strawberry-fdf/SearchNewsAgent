@@ -1,3 +1,7 @@
+/**
+ * 设置页面组件 —— 管理 LLM 开关、兴趣标签、关键词规则、筛选预设方案。
+ * 分为四个卡片区块，每个区块独立的增删改查逻辑。
+ */
 "use client";
 
 import { useEffect, useState } from "react";
@@ -13,6 +17,11 @@ import {
   Brain,
   X,
   Save,
+  BookMarked,
+  CheckCircle2,
+  Circle,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import clsx from "clsx";
 import {
@@ -25,8 +34,15 @@ import {
   addKeywordRule,
   toggleKeywordRule,
   deleteKeywordRule,
+  getFilterPresets,
+  createFilterPreset,
+  updateFilterPreset,
+  activateFilterPreset,
+  deactivateFilterPresets,
+  deleteFilterPreset,
   type AppSettings,
   type KeywordRule,
+  type FilterPreset,
 } from "@/lib/api";
 
 // ── Toggle switch ──
@@ -99,10 +115,19 @@ export default function Settings() {
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [interestTags, setInterestTags] = useState<string[]>([]);
   const [rules, setRules] = useState<KeywordRule[]>([]);
+  const [presets, setPresets] = useState<FilterPreset[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterPromptDraft, setFilterPromptDraft] = useState("");
   const [filterPromptSaving, setFilterPromptSaving] = useState(false);
   const [filterPromptSaved, setFilterPromptSaved] = useState(false);
+
+  // Preset editor state
+  const [expandedPresetId, setExpandedPresetId] = useState<string | null>(null);
+  const [presetPromptDrafts, setPresetPromptDrafts] = useState<Record<string, string>>({});
+  const [newPresetName, setNewPresetName] = useState("");
+  const [newPresetPrompt, setNewPresetPrompt] = useState("");
+  const [showNewPresetForm, setShowNewPresetForm] = useState(false);
+  const [presetSaving, setPresetSaving] = useState<string | null>(null);
 
   // Forms
   const [newTag, setNewTag] = useState("");
@@ -116,15 +141,23 @@ export default function Settings() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [s, t, r] = await Promise.all([
+      const [s, t, r, p] = await Promise.all([
         getSettings(),
         getInterestTags(),
         getKeywordRules(),
+        getFilterPresets(),
       ]);
       setAppSettings(s);
       setInterestTags(t.items);
       setRules(r.items);
+      setPresets(p.items);
       setFilterPromptDraft(s.llm_filter_prompt ?? "");
+      // Initialise draft prompts
+      const drafts: Record<string, string> = {};
+      for (const preset of p.items) {
+        drafts[preset.id] = preset.prompt;
+      }
+      setPresetPromptDrafts(drafts);
     } catch (err) {
       console.error(err);
     } finally {
@@ -203,6 +236,73 @@ export default function Settings() {
     }
   }
 
+  // ── Filter Presets ──
+
+  async function handleCreatePreset() {
+    const name = newPresetName.trim();
+    if (!name) return;
+    try {
+      const res = await createFilterPreset(name, newPresetPrompt);
+      const newPreset: FilterPreset = {
+        id: res.id,
+        name,
+        prompt: newPresetPrompt,
+        is_active: false,
+        created_at: new Date().toISOString(),
+      };
+      setPresets((prev) => [...prev, newPreset]);
+      setPresetPromptDrafts((prev) => ({ ...prev, [res.id]: newPresetPrompt }));
+      setNewPresetName("");
+      setNewPresetPrompt("");
+      setShowNewPresetForm(false);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleSavePresetPrompt(presetId: string) {
+    setPresetSaving(presetId);
+    try {
+      await updateFilterPreset(presetId, { prompt: presetPromptDrafts[presetId] ?? "" });
+      setPresets((prev) =>
+        prev.map((p) => p.id === presetId ? { ...p, prompt: presetPromptDrafts[presetId] ?? "" } : p)
+      );
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setPresetSaving(null);
+    }
+  }
+
+  async function handleActivatePreset(presetId: string) {
+    try {
+      await activateFilterPreset(presetId);
+      setPresets((prev) => prev.map((p) => ({ ...p, is_active: p.id === presetId })));
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleDeactivatePresets() {
+    try {
+      await deactivateFilterPresets();
+      setPresets((prev) => prev.map((p) => ({ ...p, is_active: false })));
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleDeletePreset(presetId: string) {
+    try {
+      await deleteFilterPreset(presetId);
+      setPresets((prev) => prev.filter((p) => p.id !== presetId));
+      setPresetPromptDrafts((prev) => { const n = { ...prev }; delete n[presetId]; return n; });
+      if (expandedPresetId === presetId) setExpandedPresetId(null);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
   async function handleToggleRule(id: string) {
     try {
       const res = await toggleKeywordRule(id);
@@ -262,9 +362,9 @@ export default function Settings() {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-sm font-medium">自定义筛选要求</div>
+                <div className="text-sm font-medium">手动筛选要求（无预设激活时使用）</div>
                 <div className="text-xs text-dark-muted mt-0.5">
-                  补充给 LLM 的筛选要求，影响 model_selected 判断。留空表示使用默认策略。
+                  补充给 LLM 的筛选要求，影响 model_selected 判断。有激活预设时自动使用预设内容。
                 </div>
               </div>
               <button
@@ -296,6 +396,163 @@ export default function Settings() {
             <p>• <strong className="text-dark-text">开启</strong>：完整 AI 分析流水线，生成摘要、分类、重要性评分，消耗 API 额度</p>
             <p>• <strong className="text-dark-text">关闭</strong>：极速模式，仅抓取原始标题，不消耗 API，配合关键词规则使用</p>
           </div>
+        </SectionCard>
+
+        {/* ── Filter Presets ── */}
+        <SectionCard
+          icon={BookMarked}
+          title="筛选规则预设"
+          subtitle="保存多个筛选指令预设，运行流水线时自动使用激活的预设"
+        >
+          {/* Active status banner */}
+          {presets.some((p) => p.is_active) ? (
+            <div className="flex items-center justify-between rounded-lg bg-dark-accent/10 border border-dark-accent/30 px-3 py-2">
+              <span className="text-xs text-dark-accent">
+                当前激活：<strong>{presets.find((p) => p.is_active)?.name}</strong>
+              </span>
+              <button
+                onClick={handleDeactivatePresets}
+                className="text-xs text-dark-muted hover:text-red-400 transition-colors"
+              >
+                取消激活
+              </button>
+            </div>
+          ) : (
+            <div className="rounded-lg bg-dark-surface border border-dark-border px-3 py-2 text-xs text-dark-muted">
+              暂无激活预设，将使用上方手动筛选要求
+            </div>
+          )}
+
+          {/* Presets list */}
+          <div className="space-y-2">
+            {presets.length === 0 && (
+              <p className="text-xs text-dark-muted italic">暂无预设，点击「新建预设」创建第一个</p>
+            )}
+            {presets.map((preset) => (
+              <div key={preset.id} className="rounded-xl border border-dark-border bg-dark-surface overflow-hidden">
+                <div className="flex items-center gap-3 px-3 py-2.5">
+                  {/* Active indicator / toggle active */}
+                  <button
+                    onClick={() =>
+                      preset.is_active ? handleDeactivatePresets() : handleActivatePreset(preset.id)
+                    }
+                    title={preset.is_active ? "取消激活" : "设为激活预设"}
+                    className="flex-shrink-0"
+                  >
+                    {preset.is_active ? (
+                      <CheckCircle2 size={16} className="text-dark-accent" />
+                    ) : (
+                      <Circle size={16} className="text-dark-muted hover:text-dark-accent transition-colors" />
+                    )}
+                  </button>
+
+                  <span className={clsx("flex-1 text-sm font-medium", preset.is_active && "text-dark-accent")}>
+                    {preset.name}
+                  </span>
+
+                  {preset.is_active && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-dark-accent/20 text-dark-accent">激活</span>
+                  )}
+
+                  {/* Expand/collapse prompt editor */}
+                  <button
+                    onClick={() =>
+                      setExpandedPresetId(expandedPresetId === preset.id ? null : preset.id)
+                    }
+                    className="p-1 rounded hover:bg-dark-card text-dark-muted hover:text-dark-text transition-colors"
+                    title="编辑内容"
+                  >
+                    {expandedPresetId === preset.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </button>
+
+                  {/* Delete */}
+                  <button
+                    onClick={() => handleDeletePreset(preset.id)}
+                    className="p-1 rounded hover:bg-red-500/10 text-dark-muted hover:text-red-400 transition-colors"
+                    title="删除预设"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+
+                {/* Inline prompt editor */}
+                {expandedPresetId === preset.id && (
+                  <div className="border-t border-dark-border px-3 py-3 space-y-2">
+                    <p className="text-xs text-dark-muted">筛选要求内容（传递给 LLM）</p>
+                    <textarea
+                      value={presetPromptDrafts[preset.id] ?? preset.prompt}
+                      onChange={(e) =>
+                        setPresetPromptDrafts((prev) => ({ ...prev, [preset.id]: e.target.value }))
+                      }
+                      rows={4}
+                      placeholder="例：只有涉及大模型发布、重大研究突破或行业动态的文章才应进入精选..."
+                      className="w-full bg-dark-card border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent resize-y font-mono"
+                    />
+                    <button
+                      onClick={() => handleSavePresetPrompt(preset.id)}
+                      disabled={presetSaving === preset.id}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-dark-accent text-black text-xs font-medium hover:bg-dark-accent/80 disabled:opacity-50 transition-colors"
+                    >
+                      {presetSaving === preset.id ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <Save size={12} />
+                      )}
+                      保存内容
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* New preset form */}
+          {showNewPresetForm ? (
+            <div className="rounded-xl border border-dark-accent/40 bg-dark-card p-4 space-y-3">
+              <p className="text-sm font-medium">新建预设</p>
+              <input
+                autoFocus
+                value={newPresetName}
+                onChange={(e) => setNewPresetName(e.target.value)}
+                placeholder="预设名称，如：严格精选、宽松模式..."
+                className="w-full bg-dark-surface border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent"
+              />
+              <textarea
+                value={newPresetPrompt}
+                onChange={(e) => setNewPresetPrompt(e.target.value)}
+                placeholder="筛选要求内容（可为空）"
+                rows={3}
+                className="w-full bg-dark-surface border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent resize-y font-mono"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={handleCreatePreset}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-dark-accent text-black text-sm font-medium hover:bg-dark-accent/80 transition-colors"
+                >
+                  <Plus size={14} />
+                  创建
+                </button>
+                <button
+                  onClick={() => { setShowNewPresetForm(false); setNewPresetName(""); setNewPresetPrompt(""); }}
+                  className="px-4 py-2 rounded-lg border border-dark-border text-sm text-dark-muted hover:text-dark-text transition-colors"
+                >
+                  取消
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowNewPresetForm(true)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-dashed border-dark-border text-sm text-dark-muted hover:text-dark-text hover:border-dark-accent/50 transition-colors w-full justify-center"
+            >
+              <Plus size={14} />
+              新建预设
+            </button>
+          )}
+
+          <p className="text-xs text-dark-muted">
+            点击圆圈按鈕激活预设。激活预设后，每次运行流水线自动使用该预设的筛选要求。
+          </p>
         </SectionCard>
 
         {/* ── Interest Tags ── */}

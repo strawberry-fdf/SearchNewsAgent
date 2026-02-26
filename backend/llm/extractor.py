@@ -1,8 +1,13 @@
 """
-LLM Extractor – analyses article content via OpenAI or Anthropic,
-returns validated LLMAnalysis objects.
+LLM 分析引擎 —— 调用大语言模型对文章进行结构化深度分析。
 
-Supports provider switching via config.LLM_PROVIDER.
+流程:
+1. 内容截断：按 Token 限制截断过长文本，控制成本
+2. 调用 LLM：支持 OpenAI / Anthropic 双 Provider 切换
+3. JSON 解析：带容错处理（剥离 code fence、Pydantic 校验）
+4. 返回 LLMAnalysis 结构化对象
+
+支持用户自定义筛选提示 (filter_prompt)，追加到 System Prompt 中。
 """
 
 from __future__ import annotations

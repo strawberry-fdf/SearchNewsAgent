@@ -1,3 +1,7 @@
+/**
+ * 文章列表组件 —— 支持三种模式: 精选Feed / 全部文章 / 收藏。
+ * 包含分类筛选、关键词搜索、排序、分页、Pipeline 触发、SSE 实时日志。
+ */
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
@@ -10,6 +14,7 @@ import {
   List,
   Trash2,
   CheckSquare,
+  ArrowDownUp,
 } from "lucide-react";
 import ArticleCard from "./ArticleCard";
 import type { Article, ArticlesResponse } from "@/lib/api";
@@ -81,6 +86,11 @@ export default function ArticleFeed({ mode, statusFilter }: ArticleFeedProps) {
   const [keyword, setKeyword] = useState("");
   const [debouncedKeyword, setDebouncedKeyword] = useState("");
 
+  // Sort state
+  const [sortBy, setSortBy] = useState("fetched_at");
+  const [sortOrder, setSortOrder] = useState("desc");
+  const [showSortMenu, setShowSortMenu] = useState(false);
+
   // Selection / delete state
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedHashes, setSelectedHashes] = useState<Set<string>>(new Set());
@@ -119,10 +129,12 @@ export default function ArticleFeed({ mode, statusFilter }: ArticleFeedProps) {
             LIMIT,
             category,
             activeTagFilters.length > 0 ? activeTagFilters : undefined,
-            debouncedKeyword || undefined
+            debouncedKeyword || undefined,
+            sortBy,
+            sortOrder,
           );
         } else {
-          res = await getAllArticles(currentSkip, LIMIT, statusFilter);
+          res = await getAllArticles(currentSkip, LIMIT, statusFilter, sortBy, sortOrder);
         }
 
         if (reset) {
@@ -139,13 +151,13 @@ export default function ArticleFeed({ mode, statusFilter }: ArticleFeedProps) {
         setLoadingMore(false);
       }
     },
-    [mode, statusFilter, category, activeTagFilters, debouncedKeyword, skip]
+    [mode, statusFilter, category, activeTagFilters, debouncedKeyword, skip, sortBy, sortOrder]
   );
 
   useEffect(() => {
     fetchArticles(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, statusFilter, category, activeTagFilters, debouncedKeyword]);
+  }, [mode, statusFilter, category, activeTagFilters, debouncedKeyword, sortBy, sortOrder]);
 
   const handleToggleStar = async (urlHash: string) => {
     try {
@@ -256,6 +268,65 @@ export default function ArticleFeed({ mode, statusFilter }: ArticleFeedProps) {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Sort menu */}
+          <div className="relative">
+            <button
+              onClick={() => setShowSortMenu((v) => !v)}
+              title="排序方式"
+              className={clsx(
+                "flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm transition-all",
+                sortBy !== "fetched_at" || sortOrder !== "desc"
+                  ? "bg-dark-accent/20 border-dark-accent/50 text-dark-accent"
+                  : "bg-dark-surface border-dark-border text-dark-muted hover:text-dark-text"
+              )}
+            >
+              <ArrowDownUp size={14} />
+              <span className="hidden md:inline">排序</span>
+            </button>
+            {showSortMenu && (
+              <div className="absolute right-0 top-full mt-1 z-50 bg-dark-card border border-dark-border rounded-xl shadow-xl p-3 w-56">
+                <p className="text-xs text-dark-muted mb-2 font-medium">排序字段</p>
+                {[
+                  { value: "fetched_at", label: "采集时间" },
+                  { value: "published_at", label: "发布时间" },
+                  ...(mode === "feed" ? [{ value: "importance", label: "重要性评分" }] : []),
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => { setSortBy(opt.value); setShowSortMenu(false); }}
+                    className={clsx(
+                      "w-full text-left px-3 py-2 rounded-lg text-sm transition-colors",
+                      sortBy === opt.value
+                        ? "bg-dark-accent text-black font-medium"
+                        : "text-dark-text hover:bg-dark-surface"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+                <hr className="border-dark-border my-2" />
+                <p className="text-xs text-dark-muted mb-2 font-medium">排序方向</p>
+                {[
+                  { value: "desc", label: "最新优先" },
+                  { value: "asc", label: "最早优先" },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => { setSortOrder(opt.value); setShowSortMenu(false); }}
+                    className={clsx(
+                      "w-full text-left px-3 py-2 rounded-lg text-sm transition-colors",
+                      sortOrder === opt.value
+                        ? "bg-dark-accent text-black font-medium"
+                        : "text-dark-text hover:bg-dark-surface"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Selection mode toggle */}
           <button
             onClick={() => {

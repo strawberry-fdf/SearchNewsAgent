@@ -1,5 +1,11 @@
 """
-RSS feed fetcher – parses RSS / Atom feeds and yields normalised article stubs.
+RSS/Atom 源解析模块 —— 获取 RSS/Atom Feed 并输出标准化的文章存根。
+
+功能:
+- 异步 HTTP 获取 Feed XML
+- feedparser 解析 RSS/Atom 格式
+- HTML 正文转换为干净的 Markdown
+- 支持 fetch_since 日期过滤，跳过旧文章
 """
 
 from __future__ import annotations
@@ -27,6 +33,7 @@ async def fetch_rss_feed(
     feed_url: str,
     source_id: Optional[str] = None,
     source_name: Optional[str] = None,
+    fetch_since: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Fetch and parse an RSS/Atom feed.
@@ -34,8 +41,19 @@ async def fetch_rss_feed(
     Returns a list of article stub dicts ready for insertion into MongoDB.
     Each stub has: url, url_hash, source_id, source_name, raw_html,
     clean_markdown, fetched_at, status='pending'.
+
+    fetch_since: ISO date string (e.g. "2024-10-01") – articles published before
+    this date are silently skipped. None means accept all.
     """
     articles: List[Dict[str, Any]] = []
+
+    # Parse fetch_since threshold
+    fetch_since_dt: Optional[datetime] = None
+    if fetch_since:
+        try:
+            fetch_since_dt = datetime.fromisoformat(fetch_since).replace(tzinfo=timezone.utc)
+        except Exception:
+            logger.warning("Invalid fetch_since value '%s', ignoring", fetch_since)
 
     try:
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT, follow_redirects=True) as client:
@@ -73,6 +91,12 @@ async def fetch_rss_feed(
 
         # Parse published date
         published_at = _parse_date(entry)
+
+        # Apply fetch_since filter
+        if fetch_since_dt is not None:
+            if published_at is None or published_at < fetch_since_dt:
+                logger.debug("Skipping entry (before fetch_since %s): %s", fetch_since, link)
+                continue
 
         articles.append({
             "url": link,

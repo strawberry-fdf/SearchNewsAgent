@@ -1,6 +1,9 @@
-"""
-Article data models (Pydantic) – used for LLM output validation, rule engine
-input, API response serialization, and MongoDB document mapping.
+"""文章数据模型 (Pydantic) —— 贯穿整个系统的核心数据结构。
+
+用途:
+- LLMAnalysis: LLM 结构化输出的校验 Schema
+- ArticleDocument: MongoDB/SQLite 文档映射
+- 枚举类: 分类、状态、拒绝原因等约束定义
 """
 
 from __future__ import annotations

@@ -1,6 +1,14 @@
 """
-Pipeline orchestrator – full flow from ingestion → LLM → rules → storage → notification.
-Called by the scheduler or manually via CLI.
+流水线编排模块 —— 端到端全流程：采集 → LLM 分析 → 规则过滤 → 入库 → 通知推送。
+
+这是系统的核心编排器，由定时调度器或管理员手动触发。
+
+流程步骤:
+  Step 1: 遍历所有启用的信源，通过 RSS/Web 抓取新文章
+  Step 2: URL 哈希去重，新文章写入数据库（status=pending）
+  Step 3: 对 pending 文章调用 LLM 进行结构化分析
+  Step 4: 将 LLM 分析结果送入规则引擎四步漏斗过滤
+  Step 5: 入选文章触发飞书推送通知
 """
 
 from __future__ import annotations
@@ -26,7 +34,22 @@ async def run_ingestion_pipeline(
     progress_cb: Optional[Callable[[str], None]] = None,
     filter_prompt: str = "",
 ) -> Dict[str, int]:
-    """Run pipeline. progress_cb(msg) is called at key steps."""
+    """
+    执行完整采集流水线。
+
+    Parameters
+    ----------
+    progress_cb : callable, optional
+        进度回调函数，在关键步骤会被调用，传入日志消息字符串。
+        前端 SSE 流式日志就是基于此回调实现的。
+    filter_prompt : str
+        可选的用户自定义筛选要求，会追加到 LLM System Prompt 中。
+
+    Returns
+    -------
+    dict
+        统计数据: {fetched, duplicates, analysed, selected, rejected, errors}
+    """
 
     def emit(msg: str):
         logger.info(msg)
@@ -35,7 +58,7 @@ async def run_ingestion_pipeline(
 
     stats = {"fetched": 0, "duplicates": 0, "analysed": 0, "selected": 0, "rejected": 0, "errors": 0}
 
-    # ── Step 1: Fetch sources ──
+    # ── Step 1: 获取所有启用的信源列表 ──
     sources = await mongo.get_all_sources(enabled_only=True)
     if not sources:
         emit("⚠️ 没有启用的信源，请先添加信源")
@@ -43,7 +66,7 @@ async def run_ingestion_pipeline(
 
     emit(f"🚀 开始采集，共 {len(sources)} 个信源")
 
-    # ── Step 2: Collect articles from each source ──
+    # ── Step 2: 遍历信源，抓取新文章并去重入库 ──
     for source in sources:
         source_type = source.get("source_type", "rss")
         source_url = source["url"]
@@ -53,8 +76,9 @@ async def run_ingestion_pipeline(
 
         try:
             emit(f"📡 正在抓取: {source_name}")
+            fetch_since_str = source.get("fetch_since")  # e.g. "2024-10-01" or None
             if source_type == "rss":
-                articles = await fetch_rss_feed(source_url, source_id, source_name)
+                articles = await fetch_rss_feed(source_url, source_id, source_name, fetch_since=fetch_since_str)
             elif source_type == "web":
                 articles = await scrape_web_page(source_url, source_id, source_name)
             else:
@@ -83,7 +107,7 @@ async def run_ingestion_pipeline(
 
     emit(f"📥 抓取完成: 新增 {stats['fetched']} 篇，重复 {stats['duplicates']} 篇")
 
-    # ── Step 3 & 4: Analyse pending articles ──
+    # ── Step 3 & 4: LLM 分析 + 规则引擎过滤 ──
     pending = await mongo.get_pending_articles(limit=100)
     emit(f"🤖 待分析文章: {len(pending)} 篇")
 

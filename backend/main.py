@@ -1,6 +1,17 @@
 """
-Main entry point – starts the FastAPI server with background scheduler
-for periodic article ingestion.
+应用入口模块 —— 启动 FastAPI 服务器并注册后台定时任务。
+
+职责:
+1. 配置全局日志格式
+2. 创建 FastAPI 应用实例（含 CORS 中间件）
+3. 使用 APScheduler 定时触发采集流水线
+4. 提供手动触发采集的 Admin 端点
+5. 管理应用生命周期（DB 连接 / Scheduler 启停）
+
+启动方式:
+    python -m backend.main
+    或
+    uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 """
 
 from __future__ import annotations
@@ -22,7 +33,7 @@ from backend.pipeline import run_ingestion_pipeline
 from backend.storage.db import close_db, get_db
 
 # ──────────────────────────────────────────────────────────────
-# Logging setup
+# 日志配置 —— 统一输出格式，级别由 settings.LOG_LEVEL 控制
 # ──────────────────────────────────────────────────────────────
 
 logging.basicConfig(
@@ -33,14 +44,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────────────────────
-# Scheduler
+# APScheduler 定时调度器 —— 按配置间隔自动执行采集流水线
 # ──────────────────────────────────────────────────────────────
 
 scheduler = AsyncIOScheduler()
 
 
 async def _scheduled_pipeline():
-    """Wrapper for the scheduler job."""
+    """定时任务回调：执行完整采集 → 分析 → 过滤 → 推送流水线。"""
     logger.info("⏰ Scheduled pipeline run triggered.")
     try:
         stats = await run_ingestion_pipeline()
@@ -50,12 +61,12 @@ async def _scheduled_pipeline():
 
 
 # ──────────────────────────────────────────────────────────────
-# App lifecycle
+# 应用生命周期管理（启动 / 关闭钩子）
 # ──────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup / shutdown hooks."""
+    """管理应用启动与关闭：初始化 DB 连接、启动定时调度、优雅退出。"""
     # Startup
     await get_db()
     logger.info("🚀 AgentNews backend started.")
@@ -80,7 +91,7 @@ async def lifespan(app: FastAPI):
 
 
 # ──────────────────────────────────────────────────────────────
-# FastAPI app
+# FastAPI 应用实例及中间件配置
 # ──────────────────────────────────────────────────────────────
 
 app = FastAPI(
@@ -90,7 +101,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS – allow frontend dev server
+# CORS 跨域配置 —— 允许前端开发服务器 (localhost:3000) 访问
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -103,18 +114,18 @@ app.include_router(router)
 
 
 # ──────────────────────────────────────────────────────────────
-# Manual trigger endpoint (admin)
+# 管理端点 —— 手动触发采集流水线
 # ──────────────────────────────────────────────────────────────
 
 @app.post("/api/admin/run-pipeline")
 async def trigger_pipeline():
-    """Manually trigger the full ingestion pipeline."""
+    """管理员手动触发完整采集流水线（同步等待结果返回）。"""
     stats = await run_ingestion_pipeline()
     return {"status": "ok", "stats": stats}
 
 
 # ──────────────────────────────────────────────────────────────
-# CLI entry
+# CLI 直接启动入口（python -m backend.main）
 # ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

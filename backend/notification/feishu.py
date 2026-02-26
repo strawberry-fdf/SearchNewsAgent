@@ -1,6 +1,10 @@
 """
-Feishu (飞书) Webhook notification module.
-Sends formatted messages when an article is selected.
+飞书 (Feishu/Lark) Webhook 推送模块 —— 当文章入选时发送富文本卡片消息。
+
+功能:
+- 构建交互式卡片消息（含标题、分数、摘要、原文链接按钮）
+- 支持 HMAC-SHA256 签名校验（可选）
+- 异步 HTTP 发送，失败不阻塞主流程
 """
 
 from __future__ import annotations

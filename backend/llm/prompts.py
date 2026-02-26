@@ -1,5 +1,10 @@
 """
-Prompt templates for the LLM article analysis extractor.
+LLM Prompt 模板定义 —— 系统提示词和用户提示词模板。
+
+System Prompt 角色设定:
+- AI 技术资讯分析师
+- 严格输出 JSON Schema 结构化数据
+- 包含标题重写、摘要、分类、评分、标签等字段的详细评分指南
 """
 
 SYSTEM_PROMPT = """你是一个专业的 AI 技术资讯分析师。你的任务是阅读给定的文章内容，提取关键信息并进行结构化分析。

@@ -1,3 +1,7 @@
+/**
+ * 统计面板组件 —— 展示文章统计概览 + Pipeline 执行历史列表。
+ * 支持 SSE 实时日志推送、手动触发 Pipeline、删除历史记录。
+ */
 "use client";
 
 import { useEffect, useRef, useState } from "react";

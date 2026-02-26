@@ -1,5 +1,15 @@
 """
-FastAPI routes – REST API for the frontend and admin operations.
+FastAPI 路由定义 —— 系统所有 REST API 端点。
+
+端点分组:
+- /api/articles/*         文章查询、收藏、标签、删除
+- /api/stats              仪表盘统计数据
+- /api/sources/*          信源 CRUD 管理
+- /api/settings           全局设置读写
+- /api/filter-presets/*   筛选规则预设管理
+- /api/tags/*             用户兴趣标签
+- /api/rules/*            关键词过滤规则
+- /api/admin/*            流水线触发与状态监控（含 SSE 实时日志流）
 """
 
 import asyncio
@@ -19,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# ── Pipeline execution state ──
+# ── 流水线执行状态（进程内单例，跟踪当前运行状态和日志） ──
 _pipeline_state: Dict[str, Any] = {
     "running": False,
     "logs": [],
@@ -29,7 +39,7 @@ _pipeline_state: Dict[str, Any] = {
 
 
 def _emit_log(msg: str):
-    """Append log message and notify all SSE listeners."""
+    """向全局状态追加日志，并通知所有 SSE 监听队列。"""
     _pipeline_state["logs"].append(msg)
     for q in list(_pipeline_state["queues"]):
         try:
@@ -39,6 +49,10 @@ def _emit_log(msg: str):
 
 
 async def _run_pipeline_bg():
+    """
+    后台执行采集流水线。
+    由 asyncio.create_task 启动，运行结杜后自动将运行记录持久化到 pipeline_runs 表。
+    """
     run_id = str(uuid.uuid4())
     started_at = datetime.now(timezone.utc).isoformat()
     _pipeline_state["running"] = True
@@ -48,7 +62,12 @@ async def _run_pipeline_bg():
     try:
         from backend.pipeline import run_ingestion_pipeline
         app_settings = await db.get_settings()
-        filter_prompt = app_settings.get("llm_filter_prompt", "")
+        # Use active preset prompt if available, otherwise fall back to manual prompt
+        active_preset = await db.get_active_filter_preset()
+        if active_preset:
+            filter_prompt = active_preset.get("prompt", "")
+        else:
+            filter_prompt = app_settings.get("llm_filter_prompt", "")
         stats = await run_ingestion_pipeline(progress_cb=_emit_log, filter_prompt=filter_prompt)
         _pipeline_state["stats"] = stats
         _emit_log("__DONE__")
@@ -76,7 +95,7 @@ async def _run_pipeline_bg():
 # ──────────────────────────────────────────────────────────────
 
 def _serialize_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
-    """Convert DB document to JSON-safe dict."""
+    """将 DB 文档转换为 JSON 安全的 dict（ObjectId → str，datetime → ISO）。"""
     if "_id" in doc:
         doc["id"] = str(doc.pop("_id"))
 
@@ -90,7 +109,7 @@ def _serialize_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ──────────────────────────────────────────────────────────────
-# Article endpoints
+# 文章查询与操作端点
 # ──────────────────────────────────────────────────────────────
 
 @router.get("/api/articles")
@@ -99,18 +118,22 @@ async def list_articles(
     category: Optional[str] = Query(None),
     tags: Optional[str] = Query(None, description="Comma-separated interest tags"),
     keyword: Optional[str] = Query(None),
+    sort_by: str = Query("fetched_at", description="Sort field: fetched_at|published_at|importance|ai_relevance"),
+    sort_order: str = Query("desc", description="Sort direction: asc|desc"),
     skip: int = Query(0, ge=0),
     limit: int = Query(30, ge=1, le=100),
 ):
-    """List articles with optional filters."""
+    """文章列表查询，支持状态/分类/标签/关键词过滤及多字段排序。"""
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
 
     if status == "selected":
         docs = await db.get_selected_articles(skip=skip, limit=limit, category=category,
-                                              tags=tag_list, keyword=keyword)
+                                              tags=tag_list, keyword=keyword,
+                                              sort_by=sort_by, sort_order=sort_order)
         total = await db.count_selected_articles(category=category, tags=tag_list, keyword=keyword)
     else:
-        docs = await db.get_all_articles(skip=skip, limit=limit, status=status)
+        docs = await db.get_all_articles(skip=skip, limit=limit, status=status,
+                                         sort_by=sort_by, sort_order=sort_order)
         total = await db.count_articles(status=status)
 
     return {
@@ -126,13 +149,16 @@ async def list_selected_articles(
     category: Optional[str] = Query(None),
     tags: Optional[str] = Query(None, description="Comma-separated interest tags"),
     keyword: Optional[str] = Query(None),
+    sort_by: str = Query("fetched_at", description="Sort field: fetched_at|published_at|importance|ai_relevance"),
+    sort_order: str = Query("desc", description="Sort direction: asc|desc"),
     skip: int = Query(0, ge=0),
     limit: int = Query(30, ge=1, le=100),
 ):
-    """Convenience endpoint – only selected articles, with optional tag/keyword filter."""
+    """精选文章专属端点，支持分类/标签/关键词过滤及排序。"""
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
     docs = await db.get_selected_articles(skip=skip, limit=limit, category=category,
-                                          tags=tag_list, keyword=keyword)
+                                          tags=tag_list, keyword=keyword,
+                                          sort_by=sort_by, sort_order=sort_order)
     total = await db.count_selected_articles(category=category, tags=tag_list, keyword=keyword)
     return {
         "total": total,
@@ -144,7 +170,7 @@ async def list_selected_articles(
 
 @router.post("/api/articles/{url_hash}/star")
 async def toggle_article_star(url_hash: str):
-    """Toggle starred state on an article."""
+    """切换文章收藏状态（星标）。"""
     new_state = await db.toggle_star(url_hash)
     return {"starred": new_state}
 
@@ -155,7 +181,7 @@ class UserTagsUpdate(BaseModel):
 
 @router.put("/api/articles/{url_hash}/user-tags")
 async def update_article_user_tags(url_hash: str, body: UserTagsUpdate):
-    """Update manually-assigned user tags on an article."""
+    """更新文章的用户自定义标签。"""
     ok = await db.update_article_user_tags(url_hash, body.tags)
     if not ok:
         raise HTTPException(status_code=404, detail="Article not found")
@@ -164,7 +190,7 @@ async def update_article_user_tags(url_hash: str, body: UserTagsUpdate):
 
 @router.delete("/api/articles/batch")
 async def delete_articles_batch(url_hashes: List[str] = None):
-    """Delete multiple articles by url_hash list (JSON body)."""
+    """批量删除文章（DELETE 请求体传入 url_hash 列表）。"""
     if not url_hashes:
         raise HTTPException(status_code=400, detail="url_hashes required")
     count = await db.delete_articles_batch(url_hashes)
@@ -177,14 +203,14 @@ class BatchDeleteBody(BaseModel):
 
 @router.post("/api/articles/batch-delete")
 async def delete_articles_batch_post(body: BatchDeleteBody):
-    """Delete multiple articles (POST body) by url_hash list."""
+    """批量删除文章（POST 请求体传入 url_hash 列表）。"""
     count = await db.delete_articles_batch(body.url_hashes)
     return {"status": "ok", "deleted": count}
 
 
 @router.delete("/api/articles/{url_hash}")
 async def delete_article(url_hash: str):
-    """Delete a single article by url_hash."""
+    """删除单篇文章。"""
     deleted = await db.delete_article(url_hash)
     if not deleted:
         raise HTTPException(status_code=404, detail="Article not found")
@@ -193,7 +219,7 @@ async def delete_article(url_hash: str):
 
 @router.get("/api/stats")
 async def get_stats():
-    """Dashboard statistics."""
+    """仪表盘统计数据：总文章数/精选/已过滤/待处理。"""
     total = await db.count_articles()
     selected = await db.count_articles(status="selected")
     rejected = await db.count_articles(status="rejected")
@@ -207,7 +233,7 @@ async def get_stats():
 
 
 # ──────────────────────────────────────────────────────────────
-# Source management endpoints
+# 信源管理端点
 # ──────────────────────────────────────────────────────────────
 
 class SourceCreate(BaseModel):
@@ -218,6 +244,7 @@ class SourceCreate(BaseModel):
     enabled: bool = True
     fetch_interval_minutes: int = 30
     category: str = ""
+    fetch_since: Optional[str] = None  # ISO date string, e.g. "2024-10-01"
 
 
 class SourceUpdate(BaseModel):
@@ -226,18 +253,19 @@ class SourceUpdate(BaseModel):
     name: Optional[str] = None
     tags: Optional[List[str]] = None
     fetch_interval_minutes: Optional[int] = None
+    fetch_since: Optional[str] = None  # ISO date string or empty string to clear
 
 
 @router.get("/api/sources")
 async def list_sources():
-    """List all configured sources."""
+    """获取所有信源列表（含禁用的）。"""
     docs = await db.get_all_sources(enabled_only=False)
     return {"items": [_serialize_doc(d) for d in docs]}
 
 
 @router.post("/api/sources")
 async def create_source(source: SourceCreate):
-    """Add a new source."""
+    """添加新信源（RSS / Web / API）。"""
     doc = source.model_dump()
     result = await db.upsert_source(doc)
     return {"status": "ok", "id": result}
@@ -245,10 +273,13 @@ async def create_source(source: SourceCreate):
 
 @router.patch("/api/sources/{source_id}")
 async def update_source(source_id: str, body: SourceUpdate):
-    """Partially update a source (enabled toggle, category, etc.)."""
+    """部分更新信源配置（启用/禁用、分类、采集起始日等）。"""
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if body.enabled is not None:
         updates["enabled"] = body.enabled
+    # Allow clearing fetch_since with empty string
+    if body.fetch_since is not None:
+        updates["fetch_since"] = body.fetch_since if body.fetch_since.strip() else None
     ok = await db.update_source(source_id, updates)
     if not ok:
         raise HTTPException(status_code=404, detail="Source not found")
@@ -257,7 +288,7 @@ async def update_source(source_id: str, body: SourceUpdate):
 
 @router.delete("/api/sources")
 async def remove_source(url: str = Query(...)):
-    """Delete a source by URL."""
+    """按 URL 删除信源。"""
     deleted = await db.delete_source(url)
     if not deleted:
         raise HTTPException(status_code=404, detail="Source not found")
@@ -265,7 +296,7 @@ async def remove_source(url: str = Query(...)):
 
 
 # ──────────────────────────────────────────────────────────────
-# Settings
+# 全局设置端点
 # ──────────────────────────────────────────────────────────────
 
 class SettingsUpdate(BaseModel):
@@ -275,13 +306,13 @@ class SettingsUpdate(BaseModel):
 
 @router.get("/api/settings")
 async def get_settings():
-    """Get application settings."""
+    """获取全局应用设置（LLM 开关、筛选提示等）。"""
     return await db.get_settings()
 
 
 @router.put("/api/settings")
 async def update_settings(body: SettingsUpdate):
-    """Update application settings."""
+    """更新全局设置。"""
     data = body.model_dump(exclude_none=True)
     for key, value in data.items():
         await db.set_setting(key, value)
@@ -289,7 +320,71 @@ async def update_settings(body: SettingsUpdate):
 
 
 # ──────────────────────────────────────────────────────────────
-# Interest tags (user-defined topic filters)
+# 筛选规则预设端点
+# ──────────────────────────────────────────────────────────────
+
+class PresetCreate(BaseModel):
+    name: str
+    prompt: str = ""
+
+
+class PresetUpdate(BaseModel):
+    name: Optional[str] = None
+    prompt: Optional[str] = None
+
+
+@router.get("/api/filter-presets")
+async def list_filter_presets():
+    """List all saved filter presets."""
+    presets = await db.get_filter_presets()
+    return {"items": presets}
+
+
+@router.post("/api/filter-presets")
+async def create_filter_preset(body: PresetCreate):
+    """Create a new filter preset."""
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty")
+    preset_id = await db.create_filter_preset(name, body.prompt)
+    return {"status": "ok", "id": preset_id}
+
+
+@router.patch("/api/filter-presets/{preset_id}")
+async def update_filter_preset(preset_id: str, body: PresetUpdate):
+    """Update a filter preset's name or prompt."""
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    ok = await db.update_filter_preset(preset_id, updates)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Preset not found")
+    return {"status": "ok"}
+
+
+@router.post("/api/filter-presets/{preset_id}/activate")
+async def activate_filter_preset(preset_id: str):
+    """Set a preset as active (used by the pipeline)."""
+    await db.activate_filter_preset(preset_id)
+    return {"status": "ok", "active_id": preset_id}
+
+
+@router.post("/api/filter-presets/deactivate")
+async def deactivate_all_presets():
+    """Deactivate all presets (use default / manual prompt)."""
+    await db.activate_filter_preset(None)
+    return {"status": "ok"}
+
+
+@router.delete("/api/filter-presets/{preset_id}")
+async def delete_filter_preset(preset_id: str):
+    """Delete a filter preset."""
+    deleted = await db.delete_filter_preset(preset_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Preset not found")
+    return {"status": "deleted"}
+
+
+# ──────────────────────────────────────────────────────────────
+# 用户兴趣标签端点（用于前端 Feed 过滤）
 # ──────────────────────────────────────────────────────────────
 
 class TagCreate(BaseModel):
@@ -323,7 +418,7 @@ async def remove_interest_tag(tag: str):
 
 
 # ──────────────────────────────────────────────────────────────
-# Keyword rules
+# 关键词过滤规则端点
 # ──────────────────────────────────────────────────────────────
 
 class RuleCreate(BaseModel):
@@ -365,12 +460,12 @@ async def remove_keyword_rule(rule_id: str):
 
 
 # ──────────────────────────────────────────────────────────────
-# Admin
+# 流水线管理与监控端点（Admin）
 # ──────────────────────────────────────────────────────────────
 
 @router.post("/api/admin/run-pipeline")
 async def run_pipeline():
-    """Start the ingestion pipeline as a background task."""
+    """启动采集流水线作为后台任务（非阻塞）。"""
     if _pipeline_state["running"]:
         return {"status": "already_running"}
     asyncio.create_task(_run_pipeline_bg())
@@ -379,7 +474,7 @@ async def run_pipeline():
 
 @router.get("/api/admin/pipeline-status")
 async def pipeline_status():
-    """Return current pipeline state: running flag, log lines, stats."""
+    """查询当前流水线状态：运行标志 / 日志 / 统计。"""
     return {
         "running": _pipeline_state["running"],
         "logs": _pipeline_state["logs"],
@@ -389,7 +484,10 @@ async def pipeline_status():
 
 @router.get("/api/admin/pipeline-stream")
 async def pipeline_stream():
-    """SSE endpoint that emits log lines in real time."""
+    """
+    SSE 实时日志流端点。
+    前端通过 EventSource 监听，实时接收流水线执行日志。
+    """
     q: asyncio.Queue = asyncio.Queue()
     _pipeline_state["queues"].add(q)
 
@@ -424,7 +522,7 @@ async def pipeline_stream():
 
 
 # ──────────────────────────────────────────────────────────────
-# Pipeline run history
+# 流水线执行历史记录
 # ──────────────────────────────────────────────────────────────
 
 @router.get("/api/admin/pipeline-runs")

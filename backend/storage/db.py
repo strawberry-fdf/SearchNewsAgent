@@ -1,6 +1,15 @@
 """
-Storage Layer - SQLite (Async) Implementation.
-Replaces MongoDB for standalone portability.
+存储层 —— SQLite 异步实现 (aiosqlite)。
+
+替代 MongoDB，实现单机免运维部署，提供与 MongoDB版相同的 CRUD 接口。
+内部数据表:
+  - sources:    信源配置表
+  - articles:   文章主表（抓取+分析+筛选结果）
+  - settings:   全局键值配置
+  - interest_tags:  用户兴趣标签
+  - keyword_rules:  关键词过滤规则
+  - pipeline_runs:  Pipeline 执行历史
+  - filter_presets: 筛选预设方案
 """
 
 import aiosqlite
@@ -17,7 +26,7 @@ logger = logging.getLogger(__name__)
 DB_PATH = "agent_news.db"
 _db_pool: Optional[aiosqlite.Connection] = None
 
-# Custom JSON encoder/decoder for complex types stored in TEXT columns
+# 自定义 JSON 编解码器，处理 SQLite TEXT 字段中存储的复杂类型 (datetime 等)
 def _json_dumps(obj: Any) -> str:
     if isinstance(obj, (datetime,)):
         return obj.isoformat()
@@ -120,12 +129,22 @@ async def _init_schema(db: aiosqlite.Connection):
         status TEXT DEFAULT 'running'
     );
     """)
+    await db.execute("""
+    CREATE TABLE IF NOT EXISTS filter_presets (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        prompt TEXT DEFAULT '',
+        is_active INTEGER DEFAULT 0,
+        created_at TEXT
+    );
+    """)
 
-    # ── Migrations: add columns to existing tables ──
+    # ── 迁移脚本: 向已有表加新字段 (失败即忽略，表示字段已存在) ──
     migration_stmts = [
         "ALTER TABLE sources ADD COLUMN category TEXT DEFAULT ''",
         "ALTER TABLE articles ADD COLUMN raw_title TEXT",
         "ALTER TABLE articles ADD COLUMN user_tags TEXT DEFAULT '[]'",
+        "ALTER TABLE sources ADD COLUMN fetch_since TEXT DEFAULT NULL",
     ]
     for stmt in migration_stmts:
         try:
@@ -137,7 +156,7 @@ async def _init_schema(db: aiosqlite.Connection):
 
 
 # ──────────────────────────────────────────────────────────────
-# Helper: Convert Row to Dict
+# 工具函数: SQLite Row → 字典，并自动解析 JSON 字段 / 布尔值
 # ──────────────────────────────────────────────────────────────
 
 def _row_to_dict(row: aiosqlite.Row) -> Dict[str, Any]:
@@ -173,7 +192,7 @@ def _row_to_dict(row: aiosqlite.Row) -> Dict[str, Any]:
 
 
 # ──────────────────────────────────────────────────────────────
-# Source CRUD
+# 信源 (Source) 增删改查
 # ──────────────────────────────────────────────────────────────
 
 async def upsert_source(doc: Dict[str, Any]) -> str:
@@ -191,12 +210,13 @@ async def upsert_source(doc: Dict[str, Any]) -> str:
         src_id = row[0]
         await db.execute("""
             UPDATE sources SET 
-                name=?, source_type=?, tags=?, enabled=?, fetch_interval_minutes=?, category=?
+                name=?, source_type=?, tags=?, enabled=?, fetch_interval_minutes=?, category=?, fetch_since=?
             WHERE id=?
         """, (
             doc.get("name"), doc.get("source_type"), tags_json,
             doc.get("enabled", True), doc.get("fetch_interval_minutes", 30),
             doc.get("category", ""),
+            doc.get("fetch_since"),
             src_id
         ))
         await db.commit()
@@ -204,12 +224,13 @@ async def upsert_source(doc: Dict[str, Any]) -> str:
     else:
         src_id = str(uuid.uuid4())
         await db.execute("""
-            INSERT INTO sources (id, url, name, source_type, tags, enabled, fetch_interval_minutes, category, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO sources (id, url, name, source_type, tags, enabled, fetch_interval_minutes, category, fetch_since, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             src_id, url, doc.get("name"), doc.get("source_type"),
             tags_json, doc.get("enabled", True), doc.get("fetch_interval_minutes", 30),
             doc.get("category", ""),
+            doc.get("fetch_since"),
             now_iso
         ))
         await db.commit()
@@ -242,7 +263,7 @@ async def delete_source(url: str) -> bool:
 
 
 # ──────────────────────────────────────────────────────────────
-# Article CRUD
+# 文章 (Article) 增删改查
 # ──────────────────────────────────────────────────────────────
 
 async def article_exists(url_hash: str) -> bool:
@@ -324,6 +345,8 @@ async def get_selected_articles(
     category: Optional[str] = None,
     tags: Optional[List[str]] = None,
     keyword: Optional[str] = None,
+    sort_by: str = "fetched_at",
+    sort_order: str = "desc",
 ) -> List[Dict[str, Any]]:
     db = await get_db()
     sql = "SELECT * FROM articles WHERE status = 'selected'"
@@ -340,7 +363,10 @@ async def get_selected_articles(
     if keyword:
         sql += " AND (title LIKE ? OR raw_title LIKE ?)"
         params.extend([f"%{keyword}%", f"%{keyword}%"])
-    sql += " ORDER BY fetched_at DESC LIMIT ? OFFSET ?"
+    _ALLOWED_SORT = {"fetched_at", "published_at", "importance", "ai_relevance", "analyzed_at"}
+    _sort_col = sort_by if sort_by in _ALLOWED_SORT else "fetched_at"
+    _sort_dir = "ASC" if sort_order.lower() == "asc" else "DESC"
+    sql += f" ORDER BY {_sort_col} {_sort_dir} LIMIT ? OFFSET ?"
     params.extend([limit, skip])
     cursor = await db.execute(sql, tuple(params))
     rows = await cursor.fetchall()
@@ -351,6 +377,8 @@ async def count_selected_articles(
     category: Optional[str] = None,
     tags: Optional[List[str]] = None,
     keyword: Optional[str] = None,
+    sort_by: str = "fetched_at",
+    sort_order: str = "desc",
 ) -> int:
     db = await get_db()
     sql = "SELECT COUNT(*) FROM articles WHERE status = 'selected'"
@@ -372,15 +400,23 @@ async def count_selected_articles(
     return row[0] if row else 0
 
 
-async def get_all_articles(skip: int = 0, limit: int = 50, status: Optional[str] = None) -> List[Dict[str, Any]]:
+async def get_all_articles(
+    skip: int = 0,
+    limit: int = 50,
+    status: Optional[str] = None,
+    sort_by: str = "fetched_at",
+    sort_order: str = "desc",
+) -> List[Dict[str, Any]]:
     db = await get_db()
     sql = "SELECT * FROM articles"
     params = []
     if status:
         sql += " WHERE status = ?"
         params.append(status)
-        
-    sql += " ORDER BY fetched_at DESC LIMIT ? OFFSET ?"
+    _ALLOWED_SORT = {"fetched_at", "published_at", "importance", "ai_relevance", "analyzed_at"}
+    _sort_col = sort_by if sort_by in _ALLOWED_SORT else "fetched_at"
+    _sort_dir = "ASC" if sort_order.lower() == "asc" else "DESC"
+    sql += f" ORDER BY {_sort_col} {_sort_dir} LIMIT ? OFFSET ?"
     params.extend([limit, skip])
     
     cursor = await db.execute(sql, tuple(params))
@@ -416,12 +452,12 @@ async def toggle_star(url_hash: str) -> bool:
 
 
 # ──────────────────────────────────────────────────────────────
-# Source update
+# 信源属性更新
 # ──────────────────────────────────────────────────────────────
 
 async def update_source(source_id: str, updates: Dict[str, Any]) -> bool:
     db = await get_db()
-    allowed = {"enabled", "category", "name", "tags", "fetch_interval_minutes"}
+    allowed = {"enabled", "category", "name", "tags", "fetch_interval_minutes", "fetch_since"}
     set_clauses = []
     params = []
     for k, v in updates.items():
@@ -432,6 +468,8 @@ async def update_source(source_id: str, updates: Dict[str, Any]) -> bool:
             params.append(json.dumps(v))
         elif isinstance(v, bool):
             params.append(1 if v else 0)
+        elif isinstance(v, datetime):
+            params.append(v.isoformat())
         else:
             params.append(v)
     if not set_clauses:
@@ -444,7 +482,7 @@ async def update_source(source_id: str, updates: Dict[str, Any]) -> bool:
 
 
 # ──────────────────────────────────────────────────────────────
-# Settings
+# 全局配置 (Settings) 键值存储
 # ──────────────────────────────────────────────────────────────
 
 _SETTINGS_DEFAULTS: Dict[str, Any] = {
@@ -476,7 +514,7 @@ async def set_setting(key: str, value: Any) -> None:
 
 
 # ──────────────────────────────────────────────────────────────
-# Interest tags
+# 用户兴趣标签 (Interest Tags)
 # ──────────────────────────────────────────────────────────────
 
 async def get_interest_tags() -> List[str]:
@@ -504,7 +542,7 @@ async def delete_interest_tag(tag: str) -> bool:
 
 
 # ──────────────────────────────────────────────────────────────
-# Keyword rules
+# 关键词过滤规则 (Keyword Rules)
 # ──────────────────────────────────────────────────────────────
 
 async def get_keyword_rules() -> List[Dict[str, Any]]:
@@ -546,7 +584,7 @@ async def toggle_keyword_rule(rule_id: str) -> bool:
 
 
 # ──────────────────────────────────────────────────────────────
-# Article user tags
+# 文章用户自定义标签 (User Tags)
 # ──────────────────────────────────────────────────────────────
 
 async def update_article_user_tags(url_hash: str, tags: List[str]) -> bool:
@@ -577,7 +615,7 @@ async def delete_articles_batch(url_hashes: List[str]) -> int:
 
 
 # ──────────────────────────────────────────────────────────────
-# Pipeline run history
+# Pipeline 执行历史记录
 # ──────────────────────────────────────────────────────────────
 
 async def save_pipeline_run(
@@ -620,5 +658,81 @@ async def get_pipeline_runs(limit: int = 50) -> List[Dict[str, Any]]:
 async def delete_pipeline_run(run_id: str) -> bool:
     db = await get_db()
     cursor = await db.execute("DELETE FROM pipeline_runs WHERE id = ?", (run_id,))
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+# ──────────────────────────────────────────────────────────────
+# 筛选预设方案 (Filter Presets)
+# ──────────────────────────────────────────────────────────────
+
+async def get_filter_presets() -> List[Dict[str, Any]]:
+    db = await get_db()
+    cursor = await db.execute("SELECT * FROM filter_presets ORDER BY created_at")
+    rows = await cursor.fetchall()
+    result = []
+    for row in rows:
+        d = dict(row)
+        d["is_active"] = bool(d.get("is_active", 0))
+        result.append(d)
+    return result
+
+
+async def create_filter_preset(name: str, prompt: str = "") -> str:
+    db = await get_db()
+    preset_id = str(uuid.uuid4())
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.execute(
+        "INSERT INTO filter_presets (id, name, prompt, is_active, created_at) VALUES (?, ?, ?, 0, ?)",
+        (preset_id, name, prompt, now_iso),
+    )
+    await db.commit()
+    return preset_id
+
+
+async def update_filter_preset(preset_id: str, updates: Dict[str, Any]) -> bool:
+    db = await get_db()
+    allowed = {"name", "prompt"}
+    set_clauses = []
+    params = []
+    for k, v in updates.items():
+        if k not in allowed:
+            continue
+        set_clauses.append(f"{k} = ?")
+        params.append(v)
+    if not set_clauses:
+        return False
+    params.append(preset_id)
+    cursor = await db.execute(
+        f"UPDATE filter_presets SET {', '.join(set_clauses)} WHERE id = ?",
+        tuple(params),
+    )
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+async def activate_filter_preset(preset_id: Optional[str]) -> None:
+    """激活指定预设方案（同时停用其他所有方案）。传入 None 则全部停用。"""
+    db = await get_db()
+    await db.execute("UPDATE filter_presets SET is_active = 0")
+    if preset_id:
+        await db.execute("UPDATE filter_presets SET is_active = 1 WHERE id = ?", (preset_id,))
+    await db.commit()
+
+
+async def get_active_filter_preset() -> Optional[Dict[str, Any]]:
+    db = await get_db()
+    cursor = await db.execute("SELECT * FROM filter_presets WHERE is_active = 1 LIMIT 1")
+    row = await cursor.fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    d["is_active"] = True
+    return d
+
+
+async def delete_filter_preset(preset_id: str) -> bool:
+    db = await get_db()
+    cursor = await db.execute("DELETE FROM filter_presets WHERE id = ?", (preset_id,))
     await db.commit()
     return cursor.rowcount > 0

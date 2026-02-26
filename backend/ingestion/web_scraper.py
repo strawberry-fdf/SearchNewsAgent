@@ -1,7 +1,10 @@
 """
-Web scraper – for sources that don't provide RSS feeds.
-Uses httpx + markdownify for static pages.
-Playwright integration is optional (install separately for JS-rendered pages).
+网页爬虫模块 —— 针对没有 RSS 的网站进行文章抓取。
+
+功能:
+- 静态页面: httpx + BeautifulSoup 提取链接
+- 动态页面: Playwright 渲染后再提取（可选安装）
+- HTML 降噪: 移除 nav/footer/广告，提取主体内容转 Markdown
 """
 
 from __future__ import annotations

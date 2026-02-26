@@ -1,3 +1,6 @@
+/**
+ * 根布局 —— 设置暗色主题、中文语言、全局 CSS 变量。
+ */
 import type { Metadata } from "next";
 import "./globals.css";
 

@@ -1,3 +1,7 @@
+/**
+ * 首页组件 —— 侧边栏 + 主内容区域的布局容器。
+ * 根据 activeTab 切换渲染: 文章Feed / 全部文章 / 收藏 / 统计 / 信源管理 / 设置。
+ */
 "use client";
 
 import { useState, useEffect } from "react";

@@ -1,5 +1,15 @@
 /**
- * API client for communicating with the FastAPI backend.
+ * API 客户端 —— 封装所有与 FastAPI 后端的 HTTP 通信。
+ *
+ * 接口分组:
+ *   - Articles:  文章列表 / 收藏 / 删除 / 标签
+ *   - Stats:     统计总览
+ *   - Sources:   信源增删改查
+ *   - Settings:  全局配置
+ *   - Interest Tags: 兴趣标签
+ *   - Keyword Rules: 关键词过滤规则
+ *   - Filter Presets: 筛选预设方案
+ *   - Admin:     Pipeline 触发 / 状态 / 执行历史
  */
 
 export interface ArticleAnalysis {
@@ -52,6 +62,7 @@ export interface Source {
   fetch_interval_minutes: number;
   last_fetched_at: string | null;
   category: string;
+  fetch_since: string | null; // ISO date string, e.g. "2024-10-01"
 }
 
 export interface AppSettings {
@@ -64,6 +75,14 @@ export interface KeywordRule {
   keyword: string;
   field: string;
   enabled: boolean;
+  created_at: string;
+}
+
+export interface FilterPreset {
+  id: string;
+  name: string;
+  prompt: string;
+  is_active: boolean;
   created_at: string;
 }
 
@@ -92,29 +111,37 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
-// ── Articles ──
+// ── 文章相关接口 ──
 
 export async function getSelectedArticles(
   skip = 0,
   limit = 30,
   category?: string,
   tags?: string[],
-  keyword?: string
+  keyword?: string,
+  sortBy = "fetched_at",
+  sortOrder = "desc",
 ): Promise<ArticlesResponse> {
   const params = new URLSearchParams({ skip: String(skip), limit: String(limit) });
   if (category) params.set("category", category);
   if (tags && tags.length > 0) params.set("tags", tags.join(","));
   if (keyword) params.set("keyword", keyword);
+  if (sortBy !== "fetched_at") params.set("sort_by", sortBy);
+  if (sortOrder !== "desc") params.set("sort_order", sortOrder);
   return fetchJSON(`/api/articles/selected?${params}`);
 }
 
 export async function getAllArticles(
   skip = 0,
   limit = 50,
-  status?: string
+  status?: string,
+  sortBy = "fetched_at",
+  sortOrder = "desc",
 ): Promise<ArticlesResponse> {
   const params = new URLSearchParams({ skip: String(skip), limit: String(limit) });
   if (status) params.set("status", status);
+  if (sortBy !== "fetched_at") params.set("sort_by", sortBy);
+  if (sortOrder !== "desc") params.set("sort_order", sortOrder);
   return fetchJSON(`/api/articles?${params}`);
 }
 
@@ -145,13 +172,13 @@ export async function deleteArticlesBatch(
   });
 }
 
-// ── Stats ──
+// ── 统计总览 ──
 
 export async function getStats(): Promise<Stats> {
   return fetchJSON("/api/stats");
 }
 
-// ── Sources ──
+// ── 信源管理 ──
 
 export async function getSources(): Promise<{ items: Source[] }> {
   return fetchJSON("/api/sources");
@@ -163,6 +190,7 @@ export async function addSource(source: {
   source_type: string;
   tags: string[];
   category?: string;
+  fetch_since?: string | null;
 }): Promise<{ status: string; id: string }> {
   return fetchJSON("/api/sources", {
     method: "POST",
@@ -178,6 +206,7 @@ export async function updateSource(
     name?: string;
     tags?: string[];
     fetch_interval_minutes?: number;
+    fetch_since?: string | null;
   }
 ): Promise<{ status: string }> {
   return fetchJSON(`/api/sources/${sourceId}`, {
@@ -192,7 +221,7 @@ export async function deleteSource(url: string): Promise<void> {
   });
 }
 
-// ── Settings ──
+// ── 全局配置 ──
 
 export async function getSettings(): Promise<AppSettings> {
   return fetchJSON("/api/settings");
@@ -207,7 +236,7 @@ export async function updateSettings(
   });
 }
 
-// ── Interest Tags ──
+// ── 兴趣标签 ──
 
 export async function getInterestTags(): Promise<{ items: string[] }> {
   return fetchJSON("/api/tags");
@@ -226,7 +255,7 @@ export async function deleteInterestTag(tag: string): Promise<void> {
   await fetchJSON(`/api/tags/${encodeURIComponent(tag)}`, { method: "DELETE" });
 }
 
-// ── Keyword Rules ──
+// ── 关键词过滤规则 ──
 
 export async function getKeywordRules(): Promise<{ items: KeywordRule[] }> {
   return fetchJSON("/api/rules");
@@ -252,7 +281,47 @@ export async function deleteKeywordRule(ruleId: string): Promise<void> {
   await fetchJSON(`/api/rules/${ruleId}`, { method: "DELETE" });
 }
 
-// ── Admin ──
+// ── 筛选预设方案 ──
+
+export async function getFilterPresets(): Promise<{ items: FilterPreset[] }> {
+  return fetchJSON("/api/filter-presets");
+}
+
+export async function createFilterPreset(
+  name: string,
+  prompt: string
+): Promise<{ status: string; id: string }> {
+  return fetchJSON("/api/filter-presets", {
+    method: "POST",
+    body: JSON.stringify({ name, prompt }),
+  });
+}
+
+export async function updateFilterPreset(
+  presetId: string,
+  updates: { name?: string; prompt?: string }
+): Promise<{ status: string }> {
+  return fetchJSON(`/api/filter-presets/${presetId}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function activateFilterPreset(
+  presetId: string
+): Promise<{ status: string; active_id: string }> {
+  return fetchJSON(`/api/filter-presets/${presetId}/activate`, { method: "POST" });
+}
+
+export async function deactivateFilterPresets(): Promise<{ status: string }> {
+  return fetchJSON("/api/filter-presets/deactivate", { method: "POST" });
+}
+
+export async function deleteFilterPreset(presetId: string): Promise<void> {
+  await fetchJSON(`/api/filter-presets/${presetId}`, { method: "DELETE" });
+}
+
+// ── 管理端 (Pipeline 触发/状态) ──
 
 export interface PipelineStatus {
   running: boolean;

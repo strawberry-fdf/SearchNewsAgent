@@ -1,6 +1,13 @@
 """
-Rules Engine – implements the 4-step hardcore filter pipeline
-from the PRD (核心精选决策流水线).
+规则引擎模块 —— 实现 PRD 中的四步硬核精选决策流水线。
+
+四步过滤漏斗:
+  Step 1: 非 AI 分类直接拦截 (category == "非AI/通用工具")
+  Step 2: AI 相关性硬拦截 (ai_relevance < 60)
+  Step 3: 模型精选结果拦截 + 白名单豁免 ("大佬blog" 标签)
+  Step 4: 重要性动态门槛拦截 (按分类设置不同阈值)
+
+设计原则: 宁缺毋滥，确保“精选”内容的高质量。
 """
 
 from __future__ import annotations
@@ -11,7 +18,8 @@ from typing import Dict, List, Tuple
 logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────────────────────
-# Importance thresholds per category (Step 4)
+# 每个分类的重要性分数门槛（Step 4）
+# 数值越高 → 该分类入选越难，保证精选质量
 # ──────────────────────────────────────────────────────────────
 
 IMPORTANCE_THRESHOLDS: Dict[str, int] = {
@@ -27,21 +35,20 @@ DEFAULT_THRESHOLD = 75
 
 
 def evaluate_article(analysis: dict, source_tags: List[str] | None = None) -> Tuple[str, str]:
-    """
-    Run the 4-step filter pipeline on an LLM analysis result.
+    """对单篇文章的 LLM 分析结果执行四步过滤。
 
     Parameters
     ----------
     analysis : dict
-        Must contain keys: category, ai_relevance, model_selected, importance.
+        必须包含键: category, ai_relevance, model_selected, importance。
     source_tags : list[str]
-        Custom tags from the source definition (e.g. ["大佬blog"]).
+        信源配置的自定义标签（如 ["大佬blog"]）。
 
     Returns
     -------
     (status, reason) : tuple[str, str]
-        status is "selected" or "rejected".
-        reason is "" for selected, or one of the REJECTED_* codes.
+        status 为 "selected" 或 "rejected"；
+        reason 为空字符串或 REJECTED_* 拒绝码。
     """
     if source_tags is None:
         source_tags = []
