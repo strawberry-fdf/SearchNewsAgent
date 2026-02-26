@@ -138,3 +138,7 @@ docker-compose up -d
 ## License
 
 MIT
+
+async def _scheduled_pipeline():
+    """定时任务回调：执行完整采集 → 分析 → 过滤 → 推送流水线。"""
+    logger.info("⏰ Scheduled pipeline run triggered.")
