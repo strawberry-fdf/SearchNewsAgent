@@ -62,10 +62,18 @@ async def _run_pipeline_bg():
     try:
         from backend.pipeline import run_ingestion_pipeline
         app_settings = await db.get_settings()
-        # Use active preset prompt if available, otherwise fall back to manual prompt
-        active_preset = await db.get_active_filter_preset()
-        if active_preset:
-            filter_prompt = active_preset.get("prompt", "")
+        # Use active preset prompts if available (multi-select), otherwise fall back to manual prompt
+        active_presets = await db.get_active_filter_presets()
+        if active_presets:
+            # Combine all active preset prompts
+            preset_prompts = [p.get("prompt", "").strip() for p in active_presets if p.get("prompt", "").strip()]
+            if preset_prompts:
+                preset_names = [p.get("name", "") for p in active_presets]
+                filter_prompt = f"当前激活的筛选规则预设（共 {len(preset_prompts)} 条，必须全部满足）:\n"
+                for i, (name, prompt) in enumerate(zip(preset_names, preset_prompts), 1):
+                    filter_prompt += f"\n【规则 {i}: {name}】\n{prompt}\n"
+            else:
+                filter_prompt = app_settings.get("llm_filter_prompt", "")
         else:
             filter_prompt = app_settings.get("llm_filter_prompt", "")
         stats = await run_ingestion_pipeline(progress_cb=_emit_log, filter_prompt=filter_prompt)
@@ -133,8 +141,9 @@ async def list_articles(
         total = await db.count_selected_articles(category=category, tags=tag_list, keyword=keyword)
     else:
         docs = await db.get_all_articles(skip=skip, limit=limit, status=status,
+                                         keyword=keyword,
                                          sort_by=sort_by, sort_order=sort_order)
-        total = await db.count_articles(status=status)
+        total = await db.count_articles(status=status, keyword=keyword)
 
     return {
         "total": total,
@@ -362,9 +371,16 @@ async def update_filter_preset(preset_id: str, body: PresetUpdate):
 
 @router.post("/api/filter-presets/{preset_id}/activate")
 async def activate_filter_preset(preset_id: str):
-    """Set a preset as active (used by the pipeline)."""
+    """Set a preset as active (used by the pipeline). Legacy single-select."""
     await db.activate_filter_preset(preset_id)
     return {"status": "ok", "active_id": preset_id}
+
+
+@router.post("/api/filter-presets/{preset_id}/toggle-active")
+async def toggle_filter_preset_active(preset_id: str):
+    """Toggle a preset's active state (supports multi-select)."""
+    new_state = await db.toggle_filter_preset_active(preset_id)
+    return {"status": "ok", "is_active": new_state}
 
 
 @router.post("/api/filter-presets/deactivate")

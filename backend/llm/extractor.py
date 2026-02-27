@@ -104,10 +104,25 @@ async def analyse_article(content: str, filter_prompt: str = "") -> Optional[LLM
     if filter_prompt and filter_prompt.strip():
         system_prompt = SYSTEM_PROMPT + f"""
 
-补充筛选要求（用户自定义）：
+═══════════════════════════════════════════════════
+【最高优先级】用户自定义筛选规则（必须严格执行）
+═══════════════════════════════════════════════════
+
 {filter_prompt.strip()}
 
-在判断 model_selected 时，请重点参考上述补充要求。"""
+═══════════════════════════════════════════════════
+【强制执行指令】
+═══════════════════════════════════════════════════
+
+1. 上述用户自定义筛选规则是**最高优先级评判标准**，必须严格执行，不得忽视或降低其权重。
+2. 在判断 model_selected 时，文章必须同时满足上述所有筛选规则的要求才能设为 true。
+3. 与上述筛选规则关联度极低的文章，importance 必须低于 50，model_selected 必须为 false。
+4. importance 分数必须直观反映文章在上述筛选规则约束下的价值深度：
+   - 完美契合所有规则：importance 80-100
+   - 部分契合规则：importance 60-80
+   - 边缘相关：importance 40-60
+   - 明显不符合规则要求：importance < 40, model_selected = false
+5. 严格输出纯 JSON，禁止输出任何额外文字或 markdown 标记。"""
 
     # Truncate to stay within token budget
     truncated = _truncate_content(content, settings.MAX_CONTENT_TOKENS)

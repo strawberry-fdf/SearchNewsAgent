@@ -137,11 +137,13 @@ export async function getAllArticles(
   status?: string,
   sortBy = "fetched_at",
   sortOrder = "desc",
+  keyword?: string,
 ): Promise<ArticlesResponse> {
   const params = new URLSearchParams({ skip: String(skip), limit: String(limit) });
   if (status) params.set("status", status);
   if (sortBy !== "fetched_at") params.set("sort_by", sortBy);
   if (sortOrder !== "desc") params.set("sort_order", sortOrder);
+  if (keyword) params.set("keyword", keyword);
   return fetchJSON(`/api/articles?${params}`);
 }
 
@@ -311,6 +313,12 @@ export async function activateFilterPreset(
   presetId: string
 ): Promise<{ status: string; active_id: string }> {
   return fetchJSON(`/api/filter-presets/${presetId}/activate`, { method: "POST" });
+}
+
+export async function toggleFilterPresetActive(
+  presetId: string
+): Promise<{ status: string; is_active: boolean }> {
+  return fetchJSON(`/api/filter-presets/${presetId}/toggle-active`, { method: "POST" });
 }
 
 export async function deactivateFilterPresets(): Promise<{ status: string }> {

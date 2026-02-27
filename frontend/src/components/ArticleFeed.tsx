@@ -134,7 +134,7 @@ export default function ArticleFeed({ mode, statusFilter }: ArticleFeedProps) {
             sortOrder,
           );
         } else {
-          res = await getAllArticles(currentSkip, LIMIT, statusFilter, sortBy, sortOrder);
+          res = await getAllArticles(currentSkip, LIMIT, statusFilter, sortBy, sortOrder, debouncedKeyword || undefined);
         }
 
         if (reset) {
@@ -390,7 +390,7 @@ export default function ArticleFeed({ mode, statusFilter }: ArticleFeedProps) {
       </div>
 
       {/* Keyword search */}
-      {mode === "feed" && (
+      {(mode === "feed" || mode === "all") && (
         <div className="relative mb-3">
           <Search
             size={14}
@@ -400,7 +400,7 @@ export default function ArticleFeed({ mode, statusFilter }: ArticleFeedProps) {
             type="text"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
-            placeholder="关键词过滤标题..."
+            placeholder={mode === "all" ? "搜索文章（标题/摘要/全文）..." : "关键词过滤标题..."}
             className="w-full bg-dark-surface border border-dark-border rounded-lg pl-9 pr-9 py-2 text-sm focus:outline-none focus:border-dark-accent transition-colors"
           />
           {keyword && (

@@ -404,15 +404,23 @@ async def get_all_articles(
     skip: int = 0,
     limit: int = 50,
     status: Optional[str] = None,
+    keyword: Optional[str] = None,
     sort_by: str = "fetched_at",
     sort_order: str = "desc",
 ) -> List[Dict[str, Any]]:
     db = await get_db()
     sql = "SELECT * FROM articles"
-    params = []
+    params: List[Any] = []
+    conditions: List[str] = []
     if status:
-        sql += " WHERE status = ?"
+        conditions.append("status = ?")
         params.append(status)
+    if keyword:
+        conditions.append("(title LIKE ? OR raw_title LIKE ? OR summary LIKE ? OR clean_markdown LIKE ?)")
+        kw = f"%{keyword}%"
+        params.extend([kw, kw, kw, kw])
+    if conditions:
+        sql += " WHERE " + " AND ".join(conditions)
     _ALLOWED_SORT = {"fetched_at", "published_at", "importance", "ai_relevance", "analyzed_at"}
     _sort_col = sort_by if sort_by in _ALLOWED_SORT else "fetched_at"
     _sort_dir = "ASC" if sort_order.lower() == "asc" else "DESC"
@@ -424,13 +432,20 @@ async def get_all_articles(
     return [_row_to_dict(row) for row in rows]
 
 
-async def count_articles(status: Optional[str] = None) -> int:
+async def count_articles(status: Optional[str] = None, keyword: Optional[str] = None) -> int:
     db = await get_db()
     sql = "SELECT COUNT(*) FROM articles"
-    params = []
+    params: List[Any] = []
+    conditions: List[str] = []
     if status:
-        sql += " WHERE status = ?"
+        conditions.append("status = ?")
         params.append(status)
+    if keyword:
+        conditions.append("(title LIKE ? OR raw_title LIKE ? OR summary LIKE ? OR clean_markdown LIKE ?)")
+        kw = f"%{keyword}%"
+        params.extend([kw, kw, kw, kw])
+    if conditions:
+        sql += " WHERE " + " AND ".join(conditions)
     
     cursor = await db.execute(sql, tuple(params))
     row = await cursor.fetchone()
@@ -712,7 +727,7 @@ async def update_filter_preset(preset_id: str, updates: Dict[str, Any]) -> bool:
 
 
 async def activate_filter_preset(preset_id: Optional[str]) -> None:
-    """激活指定预设方案（同时停用其他所有方案）。传入 None 则全部停用。"""
+    """激活指定预设方案（同时停用其他所有方案）。传入 None 则全部停用。已废弃，保留向后兼容。"""
     db = await get_db()
     await db.execute("UPDATE filter_presets SET is_active = 0")
     if preset_id:
@@ -720,7 +735,21 @@ async def activate_filter_preset(preset_id: Optional[str]) -> None:
     await db.commit()
 
 
+async def toggle_filter_preset_active(preset_id: str) -> bool:
+    """切换指定预设方案的激活状态（支持多选激活）。返回新的激活状态。"""
+    db = await get_db()
+    cursor = await db.execute("SELECT is_active FROM filter_presets WHERE id = ?", (preset_id,))
+    row = await cursor.fetchone()
+    if not row:
+        return False
+    new_state = 0 if row[0] else 1
+    await db.execute("UPDATE filter_presets SET is_active = ? WHERE id = ?", (new_state, preset_id))
+    await db.commit()
+    return bool(new_state)
+
+
 async def get_active_filter_preset() -> Optional[Dict[str, Any]]:
+    """获取第一个激活的预设（向后兼容）。"""
     db = await get_db()
     cursor = await db.execute("SELECT * FROM filter_presets WHERE is_active = 1 LIMIT 1")
     row = await cursor.fetchone()
@@ -729,6 +758,19 @@ async def get_active_filter_preset() -> Optional[Dict[str, Any]]:
     d = dict(row)
     d["is_active"] = True
     return d
+
+
+async def get_active_filter_presets() -> List[Dict[str, Any]]:
+    """获取所有激活的预设方案列表（支持多选）。"""
+    db = await get_db()
+    cursor = await db.execute("SELECT * FROM filter_presets WHERE is_active = 1 ORDER BY created_at")
+    rows = await cursor.fetchall()
+    result = []
+    for row in rows:
+        d = dict(row)
+        d["is_active"] = True
+        result.append(d)
+    return result
 
 
 async def delete_filter_preset(preset_id: str) -> bool:

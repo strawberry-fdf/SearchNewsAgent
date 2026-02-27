@@ -68,6 +68,7 @@ async def scrape_web_page(
                 resp.raise_for_status()
                 article_html = resp.text
                 clean_markdown = _html_to_markdown(article_html)
+                raw_title = _extract_title(article_html)
 
                 articles.append({
                     "url": link,
@@ -76,6 +77,7 @@ async def scrape_web_page(
                     "source_name": source_name or urlparse(page_url).netloc,
                     "raw_html": article_html[:50000],  # cap storage
                     "clean_markdown": clean_markdown,
+                    "raw_title": raw_title,
                     "status": "pending",
                     "starred": False,
                     "fetched_at": datetime.now(timezone.utc),
@@ -174,3 +176,21 @@ def _html_to_markdown(html: str) -> str:
     target_html = str(main) if main else str(soup.body or soup)
 
     return md(target_html).strip()
+
+
+def _extract_title(html: str) -> str:
+    """从 HTML 中提取页面标题。"""
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return ""
+
+    soup = BeautifulSoup(html, "html.parser")
+    # 优先取 <h1>，其次 <title>
+    h1 = soup.find("h1")
+    if h1 and h1.get_text(strip=True):
+        return h1.get_text(strip=True)
+    title_tag = soup.find("title")
+    if title_tag and title_tag.get_text(strip=True):
+        return title_tag.get_text(strip=True)
+    return ""
