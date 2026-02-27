@@ -2,6 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Dark theme (default) ── */
 :root {
   --bg: #0a0a0f;
   --card: #12121a;
@@ -10,14 +11,23 @@
   --text: #e0e0e8;
   --muted: #8888a0;
   --accent: #00d4aa;
+  color-scheme: dark;
+}
+
+/* ── Light theme ── */
+html.light {
+  --bg: #f5f5f7;
+  --card: #ffffff;
+  --surface: #eeeef2;
+  --border: #d4d4dc;
+  --text: #1a1a2e;
+  --muted: #6b6b80;
+  --accent: #00a882;
+  color-scheme: light;
 }
 
 * {
   box-sizing: border-box;
-}
-
-html {
-  color-scheme: dark;
 }
 
 body {
@@ -45,6 +55,14 @@ body {
 }
 .score-glow-mid {
   box-shadow: 0 0 8px rgba(0, 212, 170, 0.15);
+}
+
+/* Light theme: softer glow */
+html.light .score-glow-high {
+  box-shadow: 0 0 8px rgba(0, 168, 130, 0.2);
+}
+html.light .score-glow-mid {
+  box-shadow: 0 0 6px rgba(0, 168, 130, 0.1);
 }
 
 /* Timeline line */

@@ -63,6 +63,7 @@ export interface Source {
   last_fetched_at: string | null;
   category: string;
   fetch_since: string | null; // ISO date string, e.g. "2024-10-01"
+  pinned: boolean;
 }
 
 export interface AppSettings {
@@ -121,6 +122,7 @@ export async function getSelectedArticles(
   keyword?: string,
   sortBy = "fetched_at",
   sortOrder = "desc",
+  sourceName?: string,
 ): Promise<ArticlesResponse> {
   const params = new URLSearchParams({ skip: String(skip), limit: String(limit) });
   if (category) params.set("category", category);
@@ -128,6 +130,7 @@ export async function getSelectedArticles(
   if (keyword) params.set("keyword", keyword);
   if (sortBy !== "fetched_at") params.set("sort_by", sortBy);
   if (sortOrder !== "desc") params.set("sort_order", sortOrder);
+  if (sourceName) params.set("source_name", sourceName);
   return fetchJSON(`/api/articles/selected?${params}`);
 }
 
@@ -138,17 +141,35 @@ export async function getAllArticles(
   sortBy = "fetched_at",
   sortOrder = "desc",
   keyword?: string,
+  sourceName?: string,
 ): Promise<ArticlesResponse> {
   const params = new URLSearchParams({ skip: String(skip), limit: String(limit) });
   if (status) params.set("status", status);
   if (sortBy !== "fetched_at") params.set("sort_by", sortBy);
   if (sortOrder !== "desc") params.set("sort_order", sortOrder);
   if (keyword) params.set("keyword", keyword);
+  if (sourceName) params.set("source_name", sourceName);
   return fetchJSON(`/api/articles?${params}`);
 }
 
 export async function toggleStar(urlHash: string): Promise<{ starred: boolean }> {
   return fetchJSON(`/api/articles/${urlHash}/star`, { method: "POST" });
+}
+
+// ── 信源文章计数 ──
+
+export interface SourceCount {
+  source_name: string;
+  count: number;
+}
+
+export async function getSourceArticleCounts(
+  status?: string,
+): Promise<{ total: number; items: SourceCount[] }> {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  const qs = params.toString();
+  return fetchJSON(`/api/articles/source-counts${qs ? `?${qs}` : ""}`);
 }
 
 export async function updateArticleUserTags(
@@ -209,6 +230,7 @@ export async function updateSource(
     tags?: string[];
     fetch_interval_minutes?: number;
     fetch_since?: string | null;
+    pinned?: boolean;
   }
 ): Promise<{ status: string }> {
   return fetchJSON(`/api/sources/${sourceId}`, {

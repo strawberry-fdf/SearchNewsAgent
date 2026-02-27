@@ -1,6 +1,6 @@
 /**
  * 文章列表组件 —— 支持三种模式: 精选Feed / 全部文章 / 收藏。
- * 包含分类筛选、关键词搜索、排序、分页、Pipeline 触发、SSE 实时日志。
+ * 包含分类筛选、关键词搜索、排序、分页、按日期/信源分组、Pipeline 触发。
  */
 "use client";
 
@@ -15,6 +15,9 @@ import {
   Trash2,
   CheckSquare,
   ArrowDownUp,
+  Layers,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import ArticleCard from "./ArticleCard";
 import type { Article, ArticlesResponse } from "@/lib/api";
@@ -32,7 +35,11 @@ import clsx from "clsx";
 interface ArticleFeedProps {
   mode: "feed" | "all" | "starred";
   statusFilter?: string;
+  /** 按信源名称过滤（来自 SourcePanel） */
+  sourceFilter?: string | null;
 }
+
+type GroupMode = "date" | "source";
 
 const BUILTIN_CATEGORIES = [
   "全部",
@@ -71,7 +78,23 @@ function groupByDate(articles: Article[]): Record<string, Article[]> {
   return groups;
 }
 
-export default function ArticleFeed({ mode, statusFilter }: ArticleFeedProps) {
+function groupBySource(articles: Article[]): Record<string, Article[]> {
+  const groups: Record<string, Article[]> = {};
+  for (const article of articles) {
+    const key = article.source_name || "未知信源";
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(article);
+  }
+  // Sort source groups by article count (descending)
+  const sorted: Record<string, Article[]> = {};
+  const entries = Object.entries(groups).sort((a, b) => b[1].length - a[1].length);
+  for (const [k, v] of entries) {
+    sorted[k] = v;
+  }
+  return sorted;
+}
+
+export default function ArticleFeed({ mode, statusFilter, sourceFilter }: ArticleFeedProps) {
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -90,6 +113,10 @@ export default function ArticleFeed({ mode, statusFilter }: ArticleFeedProps) {
   const [sortBy, setSortBy] = useState("fetched_at");
   const [sortOrder, setSortOrder] = useState("desc");
   const [showSortMenu, setShowSortMenu] = useState(false);
+
+  // Grouping state
+  const [groupMode, setGroupMode] = useState<GroupMode>("date");
+  const [collapsedSources, setCollapsedSources] = useState<Set<string>>(new Set());
 
   // Selection / delete state
   const [selectionMode, setSelectionMode] = useState(false);
@@ -123,6 +150,7 @@ export default function ArticleFeed({ mode, statusFilter }: ArticleFeedProps) {
 
       try {
         let res: ArticlesResponse;
+        const activeSrc = sourceFilter || undefined;
         if (mode === "feed") {
           res = await getSelectedArticles(
             currentSkip,
@@ -132,9 +160,10 @@ export default function ArticleFeed({ mode, statusFilter }: ArticleFeedProps) {
             debouncedKeyword || undefined,
             sortBy,
             sortOrder,
+            activeSrc,
           );
         } else {
-          res = await getAllArticles(currentSkip, LIMIT, statusFilter, sortBy, sortOrder, debouncedKeyword || undefined);
+          res = await getAllArticles(currentSkip, LIMIT, statusFilter, sortBy, sortOrder, debouncedKeyword || undefined, activeSrc);
         }
 
         if (reset) {
@@ -151,13 +180,13 @@ export default function ArticleFeed({ mode, statusFilter }: ArticleFeedProps) {
         setLoadingMore(false);
       }
     },
-    [mode, statusFilter, category, activeTagFilters, debouncedKeyword, skip, sortBy, sortOrder]
+    [mode, statusFilter, sourceFilter, category, activeTagFilters, debouncedKeyword, skip, sortBy, sortOrder]
   );
 
   useEffect(() => {
     fetchArticles(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, statusFilter, category, activeTagFilters, debouncedKeyword, sortBy, sortOrder]);
+  }, [mode, statusFilter, sourceFilter, category, activeTagFilters, debouncedKeyword, sortBy, sortOrder]);
 
   const handleToggleStar = async (urlHash: string) => {
     try {
@@ -248,8 +277,17 @@ export default function ArticleFeed({ mode, statusFilter }: ArticleFeedProps) {
 
   const displayArticles =
     mode === "starred" ? articles.filter((a) => a.starred) : articles;
-  const grouped = groupByDate(displayArticles);
+  const grouped = groupMode === "source" ? groupBySource(displayArticles) : groupByDate(displayArticles);
   const hasMore = articles.length < total;
+
+  const toggleSourceCollapse = (source: string) => {
+    setCollapsedSources((prev) => {
+      const next = new Set(prev);
+      if (next.has(source)) next.delete(source);
+      else next.add(source);
+      return next;
+    });
+  };
 
   return (
     <div className="flex-1 max-w-4xl mx-auto px-6 py-8 w-full">
@@ -265,6 +303,9 @@ export default function ArticleFeed({ mode, statusFilter }: ArticleFeedProps) {
           </h1>
           <p className="text-sm text-dark-muted mt-1">
             共 {total} 篇{mode === "feed" ? "精选" : "文章"}
+            {sourceFilter && (
+              <span className="ml-1.5 text-dark-accent">· {sourceFilter}</span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -371,6 +412,26 @@ export default function ArticleFeed({ mode, statusFilter }: ArticleFeedProps) {
             {compactMode ? <List size={14} /> : <AlignJustify size={14} />}
             <span className="hidden md:inline">
               {compactMode ? "紧凑" : "卡片"}
+            </span>
+          </button>
+
+          {/* Group mode toggle */}
+          <button
+            onClick={() => {
+              setGroupMode((v) => v === "date" ? "source" : "date");
+              setCollapsedSources(new Set());
+            }}
+            title={groupMode === "date" ? "按信源分组" : "按日期分组"}
+            className={clsx(
+              "flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm transition-all",
+              groupMode === "source"
+                ? "bg-dark-accent/20 border-dark-accent/50 text-dark-accent"
+                : "bg-dark-surface border-dark-border text-dark-muted hover:text-dark-text"
+            )}
+          >
+            <Layers size={14} />
+            <span className="hidden md:inline">
+              {groupMode === "source" ? "按信源" : "按日期"}
             </span>
           </button>
 
@@ -490,29 +551,60 @@ export default function ArticleFeed({ mode, statusFilter }: ArticleFeedProps) {
         </div>
       ) : (
         <div className="space-y-8">
-          {Object.entries(grouped).map(([dateKey, items]) => (
-            <section key={dateKey}>
-              <h2 className="text-sm font-medium text-dark-muted mb-3 sticky top-0 bg-dark-surface/90 backdrop-blur-sm py-2 z-10 -mx-2 px-2 rounded-lg">
-                {dateKey}
-                <span className="ml-2 text-xs opacity-60">({items.length})</span>
-              </h2>
-              <div className="space-y-3">
-                {items.map((article) => (
-                  <ArticleCard
-                    key={article.url_hash}
-                    article={article}
-                    onToggleStar={handleToggleStar}
-                    onUpdateUserTags={handleUpdateUserTags}
-                    onDelete={handleDeleteSingle}
-                    compact={compactMode}
-                    selectionMode={selectionMode}
-                    selected={selectedHashes.has(article.url_hash)}
-                    onToggleSelect={toggleSelect}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
+          {Object.entries(grouped).map(([groupKey, items]) => {
+            const isSourceGroup = groupMode === "source";
+            const isCollapsed = isSourceGroup && collapsedSources.has(groupKey);
+
+            return (
+              <section key={groupKey}>
+                {isSourceGroup ? (
+                  /* ── Source group header: clickable, collapsible ── */
+                  <button
+                    onClick={() => toggleSourceCollapse(groupKey)}
+                    className="w-full flex items-center gap-2 mb-3 sticky top-0 bg-dark-surface/90 backdrop-blur-sm py-2.5 z-10 -mx-2 px-3 rounded-lg hover:bg-dark-surface transition-colors group"
+                  >
+                    {isCollapsed ? (
+                      <ChevronRight size={14} className="text-dark-muted flex-shrink-0" />
+                    ) : (
+                      <ChevronDown size={14} className="text-dark-muted flex-shrink-0" />
+                    )}
+                    <span className="text-sm font-semibold text-dark-accent truncate">
+                      {groupKey}
+                    </span>
+                    <span className="ml-auto flex items-center gap-2 flex-shrink-0">
+                      <span className="text-xs bg-dark-accent/15 text-dark-accent px-2 py-0.5 rounded-full font-medium">
+                        {items.length} 篇
+                      </span>
+                    </span>
+                  </button>
+                ) : (
+                  /* ── Date group header ── */
+                  <h2 className="text-sm font-medium text-dark-muted mb-3 sticky top-0 bg-dark-surface/90 backdrop-blur-sm py-2 z-10 -mx-2 px-2 rounded-lg">
+                    {groupKey}
+                    <span className="ml-2 text-xs opacity-60">({items.length})</span>
+                  </h2>
+                )}
+                {!isCollapsed && (
+                  <div className="space-y-3">
+                    {items.map((article) => (
+                      <ArticleCard
+                        key={article.url_hash}
+                        article={article}
+                        onToggleStar={handleToggleStar}
+                        onUpdateUserTags={handleUpdateUserTags}
+                        onDelete={handleDeleteSingle}
+                        compact={compactMode}
+                        selectionMode={selectionMode}
+                        selected={selectedHashes.has(article.url_hash)}
+                        onToggleSelect={toggleSelect}
+                        hideSource={isSourceGroup}
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
+            );
+          })}
         </div>
       )}
 

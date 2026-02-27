@@ -145,6 +145,7 @@ async def _init_schema(db: aiosqlite.Connection):
         "ALTER TABLE articles ADD COLUMN raw_title TEXT",
         "ALTER TABLE articles ADD COLUMN user_tags TEXT DEFAULT '[]'",
         "ALTER TABLE sources ADD COLUMN fetch_since TEXT DEFAULT NULL",
+        "ALTER TABLE sources ADD COLUMN pinned INTEGER DEFAULT 0",
     ]
     for stmt in migration_stmts:
         try:
@@ -347,10 +348,14 @@ async def get_selected_articles(
     keyword: Optional[str] = None,
     sort_by: str = "fetched_at",
     sort_order: str = "desc",
+    source_name: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     db = await get_db()
     sql = "SELECT * FROM articles WHERE status = 'selected'"
     params = []
+    if source_name:
+        sql += " AND source_name = ?"
+        params.append(source_name)
     if category:
         sql += " AND category = ?"
         params.append(category)
@@ -379,10 +384,14 @@ async def count_selected_articles(
     keyword: Optional[str] = None,
     sort_by: str = "fetched_at",
     sort_order: str = "desc",
+    source_name: Optional[str] = None,
 ) -> int:
     db = await get_db()
     sql = "SELECT COUNT(*) FROM articles WHERE status = 'selected'"
     params = []
+    if source_name:
+        sql += " AND source_name = ?"
+        params.append(source_name)
     if category:
         sql += " AND category = ?"
         params.append(category)
@@ -407,11 +416,15 @@ async def get_all_articles(
     keyword: Optional[str] = None,
     sort_by: str = "fetched_at",
     sort_order: str = "desc",
+    source_name: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     db = await get_db()
     sql = "SELECT * FROM articles"
     params: List[Any] = []
     conditions: List[str] = []
+    if source_name:
+        conditions.append("source_name = ?")
+        params.append(source_name)
     if status:
         conditions.append("status = ?")
         params.append(status)
@@ -432,11 +445,14 @@ async def get_all_articles(
     return [_row_to_dict(row) for row in rows]
 
 
-async def count_articles(status: Optional[str] = None, keyword: Optional[str] = None) -> int:
+async def count_articles(status: Optional[str] = None, keyword: Optional[str] = None, source_name: Optional[str] = None) -> int:
     db = await get_db()
     sql = "SELECT COUNT(*) FROM articles"
     params: List[Any] = []
     conditions: List[str] = []
+    if source_name:
+        conditions.append("source_name = ?")
+        params.append(source_name)
     if status:
         conditions.append("status = ?")
         params.append(status)
@@ -450,6 +466,20 @@ async def count_articles(status: Optional[str] = None, keyword: Optional[str] = 
     cursor = await db.execute(sql, tuple(params))
     row = await cursor.fetchone()
     return row[0] if row else 0
+
+
+async def get_source_article_counts(status: Optional[str] = None) -> List[Dict[str, Any]]:
+    """获取每个信源的文章数量，可按状态过滤。返回 [{source_name, count}]，按数量降序。"""
+    db = await get_db()
+    sql = "SELECT source_name, COUNT(*) as cnt FROM articles"
+    params: List[Any] = []
+    if status:
+        sql += " WHERE status = ?"
+        params.append(status)
+    sql += " GROUP BY source_name ORDER BY cnt DESC"
+    cursor = await db.execute(sql, tuple(params))
+    rows = await cursor.fetchall()
+    return [{"source_name": row[0] or "未知信源", "count": row[1]} for row in rows]
 
 
 async def toggle_star(url_hash: str) -> bool:
@@ -472,7 +502,7 @@ async def toggle_star(url_hash: str) -> bool:
 
 async def update_source(source_id: str, updates: Dict[str, Any]) -> bool:
     db = await get_db()
-    allowed = {"enabled", "category", "name", "tags", "fetch_interval_minutes", "fetch_since"}
+    allowed = {"enabled", "category", "name", "tags", "fetch_interval_minutes", "fetch_since", "pinned"}
     set_clauses = []
     params = []
     for k, v in updates.items():

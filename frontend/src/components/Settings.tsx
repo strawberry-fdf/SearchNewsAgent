@@ -1,6 +1,6 @@
 /**
- * 设置页面组件 —— 管理 LLM 开关、手动筛选要求、筛选预设方案（多选）。
- * 筛选规则预设已合并到「大模型分析」模块内，支持多选叠加。
+ * 设置页面组件 —— 管理主题切换、LLM 开关、筛选规则（预设+默认要求合并）。
+ * 预设与手动筛选要求合并为统一的"筛选规则"区块，默认筛选要求作为兜底规则。
  */
 "use client";
 
@@ -11,11 +11,12 @@ import {
   Trash2,
   Loader2,
   Brain,
-  X,
   Save,
   ChevronDown,
   ChevronUp,
   Check,
+  Palette,
+  Filter,
 } from "lucide-react";
 import clsx from "clsx";
 import {
@@ -30,6 +31,7 @@ import {
   type AppSettings,
   type FilterPreset,
 } from "@/lib/api";
+import { useTheme } from "./ThemeProvider";
 
 // ── Toggle switch ──
 
@@ -98,6 +100,7 @@ function SectionCard({
 }
 
 export default function Settings() {
+  const { mode: themeMode, setMode: setThemeMode } = useTheme();
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [presets, setPresets] = useState<FilterPreset[]>([]);
   const [loading, setLoading] = useState(true);
@@ -112,6 +115,7 @@ export default function Settings() {
   const [newPresetPrompt, setNewPresetPrompt] = useState("");
   const [showNewPresetForm, setShowNewPresetForm] = useState(false);
   const [presetSaving, setPresetSaving] = useState<string | null>(null);
+  const [showDefaultPrompt, setShowDefaultPrompt] = useState(false);
 
   useEffect(() => {
     loadAll();
@@ -251,223 +255,231 @@ export default function Settings() {
       </div>
 
       <div className="space-y-6">
-        {/* ── LLM Settings + Filter Presets (merged) ── */}
-        <SectionCard
-          icon={Brain}
-          title="大模型分析"
-          subtitle="控制是否使用 LLM 对文章进行深度分析和智能筛选"
-        >
+        {/* ── Theme selector ── */}
+        <SectionCard icon={Palette} title="主题外观" subtitle="切换界面显示主题">
+          <div className="flex items-center gap-4">
+            <label className="text-sm font-medium flex-1">外观模式</label>
+            <select
+              value={themeMode}
+              onChange={(e) => setThemeMode(e.target.value as "light" | "dark" | "system")}
+              className="bg-dark-surface border border-dark-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-dark-accent transition-colors"
+            >
+              <option value="light">亮色</option>
+              <option value="dark">暗色</option>
+              <option value="system">跟随系统</option>
+            </select>
+          </div>
+        </SectionCard>
+
+        {/* ── LLM Settings ── */}
+        <SectionCard icon={Brain} title="大模型分析" subtitle="启用后 LLM 将对文章进行评分、摘要和筛选">
           {appSettings && (
             <Toggle
               checked={appSettings.llm_enabled}
               onChange={handleLlmToggle}
               label="启用 LLM 分析"
-              description={
-                appSettings.llm_enabled
-                  ? "开启：LLM 对文章进行分析、评分、摘要生成，并按规则筛选精选文章"
-                  : "关闭：不调用 LLM，抓取原始标题直接入库并全部标记为已选"
-              }
+              description={appSettings.llm_enabled ? "AI 分析流水线已开启" : "仅抓取原始标题，不消耗 API"}
             />
           )}
+        </SectionCard>
 
-          {/* ── Inline Filter Presets (multi-select) ── */}
-          <div className="space-y-3 pt-2 border-t border-dark-border">
-            <div>
-              <div className="text-sm font-medium">筛选规则预设</div>
-              <div className="text-xs text-dark-muted mt-0.5">
-                可同时勾选多条规则，被选中的规则将叠加并同时生效。运行流水线时自动使用。
-              </div>
+        {/* ── Unified Filter Rules (presets + default prompt merged) ── */}
+        <SectionCard icon={Filter} title="筛选规则" subtitle="自定义筛选策略，多条规则可叠加生效">
+
+          {/* Active status banner */}
+          {activePresetCount > 0 ? (
+            <div className="flex items-center justify-between rounded-lg bg-dark-accent/10 border border-dark-accent/30 px-3 py-2">
+              <span className="text-xs text-dark-accent">
+                当前激活：<strong>{activePresetCount} 条规则</strong>
+                （{presets.filter((p) => p.is_active).map((p) => p.name).join("、")}）
+              </span>
+              <button
+                onClick={handleDeactivatePresets}
+                className="text-xs text-dark-muted hover:text-red-400 transition-colors"
+              >
+                全部取消
+              </button>
             </div>
+          ) : (
+            <div className="rounded-lg bg-dark-surface border border-dark-border px-3 py-2 text-xs text-dark-muted">
+              暂无激活规则，将使用默认筛选要求
+            </div>
+          )}
 
-            {/* Active status banner */}
-            {activePresetCount > 0 ? (
-              <div className="flex items-center justify-between rounded-lg bg-dark-accent/10 border border-dark-accent/30 px-3 py-2">
-                <span className="text-xs text-dark-accent">
-                  当前激活：<strong>{activePresetCount} 条规则</strong>
-                  （{presets.filter((p) => p.is_active).map((p) => p.name).join("、")}）
-                </span>
-                <button
-                  onClick={handleDeactivatePresets}
-                  className="text-xs text-dark-muted hover:text-red-400 transition-colors"
-                >
-                  全部取消
-                </button>
-              </div>
-            ) : (
-              <div className="rounded-lg bg-dark-surface border border-dark-border px-3 py-2 text-xs text-dark-muted">
-                暂无激活预设，将使用下方手动筛选要求
-              </div>
+          {/* Presets list with multi-select checkboxes */}
+          <div className="space-y-2">
+            {presets.length === 0 && (
+              <p className="text-xs text-dark-muted italic">暂无自定义规则，点击下方「新建规则」创建</p>
             )}
-
-            {/* Presets list with multi-select checkboxes */}
-            <div className="space-y-2">
-              {presets.length === 0 && (
-                <p className="text-xs text-dark-muted italic">暂无预设，点击「新建预设」创建第一个</p>
-              )}
-              {presets.map((preset) => (
-                <div key={preset.id} className="rounded-xl border border-dark-border bg-dark-surface overflow-hidden">
-                  <div className="flex items-center gap-3 px-3 py-2.5">
-                    {/* Multi-select checkbox */}
-                    <button
-                      onClick={() => handleTogglePresetActive(preset.id)}
-                      title={preset.is_active ? "取消激活" : "激活此规则"}
-                      className={clsx(
-                        "flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
-                        preset.is_active
-                          ? "bg-dark-accent border-dark-accent"
-                          : "border-dark-muted hover:border-dark-accent"
-                      )}
-                    >
-                      {preset.is_active && <Check size={12} className="text-black" />}
-                    </button>
-
-                    <span className={clsx("flex-1 text-sm font-medium", preset.is_active && "text-dark-accent")}>
-                      {preset.name}
-                    </span>
-
-                    {preset.is_active && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-dark-accent/20 text-dark-accent">激活</span>
+            {presets.map((preset) => (
+              <div key={preset.id} className="rounded-xl border border-dark-border bg-dark-surface overflow-hidden">
+                <div className="flex items-center gap-3 px-3 py-2.5">
+                  {/* Multi-select checkbox */}
+                  <button
+                    onClick={() => handleTogglePresetActive(preset.id)}
+                    title={preset.is_active ? "取消激活" : "激活此规则"}
+                    className={clsx(
+                      "flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
+                      preset.is_active
+                        ? "bg-dark-accent border-dark-accent"
+                        : "border-dark-muted hover:border-dark-accent"
                     )}
+                  >
+                    {preset.is_active && <Check size={12} className="text-black" />}
+                  </button>
 
-                    {/* Expand/collapse prompt editor */}
-                    <button
-                      onClick={() =>
-                        setExpandedPresetId(expandedPresetId === preset.id ? null : preset.id)
+                  <span className={clsx("flex-1 text-sm font-medium", preset.is_active && "text-dark-accent")}>
+                    {preset.name}
+                  </span>
+
+                  {preset.is_active && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-dark-accent/20 text-dark-accent">激活</span>
+                  )}
+
+                  {/* Expand/collapse prompt editor */}
+                  <button
+                    onClick={() =>
+                      setExpandedPresetId(expandedPresetId === preset.id ? null : preset.id)
+                    }
+                    className="p-1 rounded hover:bg-dark-card text-dark-muted hover:text-dark-text transition-colors"
+                    title="编辑内容"
+                  >
+                    {expandedPresetId === preset.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </button>
+
+                  {/* Delete */}
+                  <button
+                    onClick={() => handleDeletePreset(preset.id)}
+                    className="p-1 rounded hover:bg-red-500/10 text-dark-muted hover:text-red-400 transition-colors"
+                    title="删除规则"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+
+                {/* Inline prompt editor */}
+                {expandedPresetId === preset.id && (
+                  <div className="border-t border-dark-border px-3 py-3 space-y-2">
+                    <p className="text-xs text-dark-muted">筛选要求内容（传递给 LLM）</p>
+                    <textarea
+                      value={presetPromptDrafts[preset.id] ?? preset.prompt}
+                      onChange={(e) =>
+                        setPresetPromptDrafts((prev) => ({ ...prev, [preset.id]: e.target.value }))
                       }
-                      className="p-1 rounded hover:bg-dark-card text-dark-muted hover:text-dark-text transition-colors"
-                      title="编辑内容"
-                    >
-                      {expandedPresetId === preset.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                    </button>
-
-                    {/* Delete */}
+                      rows={4}
+                      placeholder="例：只有涉及大模型发布、重大研究突破或行业动态的文章才应进入精选..."
+                      className="w-full bg-dark-card border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent resize-y font-mono"
+                    />
                     <button
-                      onClick={() => handleDeletePreset(preset.id)}
-                      className="p-1 rounded hover:bg-red-500/10 text-dark-muted hover:text-red-400 transition-colors"
-                      title="删除预设"
+                      onClick={() => handleSavePresetPrompt(preset.id)}
+                      disabled={presetSaving === preset.id}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-dark-accent text-black text-xs font-medium hover:bg-dark-accent/80 disabled:opacity-50 transition-colors"
                     >
-                      <Trash2 size={14} />
+                      {presetSaving === preset.id ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <Save size={12} />
+                      )}
+                      保存内容
                     </button>
                   </div>
-
-                  {/* Inline prompt editor */}
-                  {expandedPresetId === preset.id && (
-                    <div className="border-t border-dark-border px-3 py-3 space-y-2">
-                      <p className="text-xs text-dark-muted">筛选要求内容（传递给 LLM）</p>
-                      <textarea
-                        value={presetPromptDrafts[preset.id] ?? preset.prompt}
-                        onChange={(e) =>
-                          setPresetPromptDrafts((prev) => ({ ...prev, [preset.id]: e.target.value }))
-                        }
-                        rows={4}
-                        placeholder="例：只有涉及大模型发布、重大研究突破或行业动态的文章才应进入精选..."
-                        className="w-full bg-dark-card border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent resize-y font-mono"
-                      />
-                      <button
-                        onClick={() => handleSavePresetPrompt(preset.id)}
-                        disabled={presetSaving === preset.id}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-dark-accent text-black text-xs font-medium hover:bg-dark-accent/80 disabled:opacity-50 transition-colors"
-                      >
-                        {presetSaving === preset.id ? (
-                          <Loader2 size={12} className="animate-spin" />
-                        ) : (
-                          <Save size={12} />
-                        )}
-                        保存内容
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* New preset form */}
-            {showNewPresetForm ? (
-              <div className="rounded-xl border border-dark-accent/40 bg-dark-card p-4 space-y-3">
-                <p className="text-sm font-medium">新建预设</p>
-                <input
-                  autoFocus
-                  value={newPresetName}
-                  onChange={(e) => setNewPresetName(e.target.value)}
-                  placeholder="预设名称，如：严格精选、宽松模式..."
-                  className="w-full bg-dark-surface border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent"
-                />
-                <textarea
-                  value={newPresetPrompt}
-                  onChange={(e) => setNewPresetPrompt(e.target.value)}
-                  placeholder="筛选要求内容（可为空）"
-                  rows={3}
-                  className="w-full bg-dark-surface border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent resize-y font-mono"
-                />
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleCreatePreset}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-dark-accent text-black text-sm font-medium hover:bg-dark-accent/80 transition-colors"
-                  >
-                    <Plus size={14} />
-                    创建
-                  </button>
-                  <button
-                    onClick={() => { setShowNewPresetForm(false); setNewPresetName(""); setNewPresetPrompt(""); }}
-                    className="px-4 py-2 rounded-lg border border-dark-border text-sm text-dark-muted hover:text-dark-text transition-colors"
-                  >
-                    取消
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button
-                onClick={() => setShowNewPresetForm(true)}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-dashed border-dark-border text-sm text-dark-muted hover:text-dark-text hover:border-dark-accent/50 transition-colors w-full justify-center"
-              >
-                <Plus size={14} />
-                新建预设
-              </button>
-            )}
-
-            <p className="text-xs text-dark-muted">
-              勾选多个预设可叠加生效。运行流水线时，所有激活的预设规则会合并传递给 LLM 作为最高优先级评判标准。
-            </p>
-          </div>
-
-          {/* Manual filter prompt (fallback when no presets active) */}
-          <div className="space-y-2 pt-2 border-t border-dark-border">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-medium">手动筛选要求（无预设激活时使用）</div>
-                <div className="text-xs text-dark-muted mt-0.5">
-                  补充给 LLM 的筛选要求，影响 model_selected 判断。有激活预设时自动使用预设内容。
-                </div>
-              </div>
-              <button
-                onClick={handleFilterPromptSave}
-                disabled={filterPromptSaving}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-dark-accent text-black text-xs font-medium hover:bg-dark-accent/80 disabled:opacity-50 transition-colors"
-              >
-                {filterPromptSaving ? (
-                  <Loader2 size={12} className="animate-spin" />
-                ) : (
-                  <Save size={12} />
                 )}
-                {filterPromptSaved ? "已保存" : "保存"}
-              </button>
-            </div>
-            <textarea
-              value={filterPromptDraft}
-              onChange={(e) => setFilterPromptDraft(e.target.value)}
-              placeholder={
-                "例：只有涉及大模型发布、重大研究突破或行业平台级动态的文章才应进入精选，\n" +
-                "过滤评测类小平台或低质量入门教程。"
-              }
-              rows={4}
-              className="w-full bg-dark-surface border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent resize-y font-mono"
-            />
+              </div>
+            ))}
           </div>
 
-          <div className="rounded-lg bg-dark-surface border border-dark-border p-3 text-xs text-dark-muted space-y-1">
-            <p>• <strong className="text-dark-text">开启</strong>：完整 AI 分析流水线，生成摘要、分类、重要性评分，消耗 API 额度</p>
-            <p>• <strong className="text-dark-text">关闭</strong>：极速模式，仅抓取原始标题，不消耗 API，配合关键词规则使用</p>
+          {/* New preset form */}
+          {showNewPresetForm ? (
+            <div className="rounded-xl border border-dark-accent/40 bg-dark-card p-4 space-y-3">
+              <p className="text-sm font-medium">新建筛选规则</p>
+              <input
+                autoFocus
+                value={newPresetName}
+                onChange={(e) => setNewPresetName(e.target.value)}
+                placeholder="规则名称，如：严格精选、宽松模式..."
+                className="w-full bg-dark-surface border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent"
+              />
+              <textarea
+                value={newPresetPrompt}
+                onChange={(e) => setNewPresetPrompt(e.target.value)}
+                placeholder="筛选要求内容（可为空）"
+                rows={3}
+                className="w-full bg-dark-surface border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent resize-y font-mono"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={handleCreatePreset}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-dark-accent text-black text-sm font-medium hover:bg-dark-accent/80 transition-colors"
+                >
+                  <Plus size={14} />
+                  创建
+                </button>
+                <button
+                  onClick={() => { setShowNewPresetForm(false); setNewPresetName(""); setNewPresetPrompt(""); }}
+                  className="px-4 py-2 rounded-lg border border-dark-border text-sm text-dark-muted hover:text-dark-text transition-colors"
+                >
+                  取消
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowNewPresetForm(true)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-dashed border-dark-border text-sm text-dark-muted hover:text-dark-text hover:border-dark-accent/50 transition-colors w-full justify-center"
+            >
+              <Plus size={14} />
+              新建规则
+            </button>
+          )}
+
+          {/* Default filter prompt (collapsible, always present) */}
+          <div className="rounded-xl border border-dark-border bg-dark-surface overflow-hidden">
+            <button
+              onClick={() => setShowDefaultPrompt((v) => !v)}
+              className="w-full flex items-center justify-between px-3 py-2.5 text-sm"
+            >
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 rounded border-2 border-dark-muted/40 flex items-center justify-center bg-dark-muted/10">
+                  <span className="text-[9px] text-dark-muted font-bold">默</span>
+                </div>
+                <span className="text-dark-muted font-medium">默认筛选要求</span>
+                {activePresetCount === 0 && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-dark-accent/20 text-dark-accent">生效中</span>
+                )}
+              </div>
+              {showDefaultPrompt ? <ChevronUp size={14} className="text-dark-muted" /> : <ChevronDown size={14} className="text-dark-muted" />}
+            </button>
+            {showDefaultPrompt && (
+              <div className="border-t border-dark-border px-3 py-3 space-y-2">
+                <p className="text-xs text-dark-muted">
+                  当无自定义规则激活时，此默认要求将作为 LLM 的筛选标准。
+                </p>
+                <textarea
+                  value={filterPromptDraft}
+                  onChange={(e) => setFilterPromptDraft(e.target.value)}
+                  placeholder={
+                    "例：只有涉及大模型发布、重大研究突破或行业平台级动态的文章才应进入精选，\n" +
+                    "过滤评测类小平台或低质量入门教程。"
+                  }
+                  rows={4}
+                  className="w-full bg-dark-card border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent resize-y font-mono"
+                />
+                <button
+                  onClick={handleFilterPromptSave}
+                  disabled={filterPromptSaving}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-dark-accent text-black text-xs font-medium hover:bg-dark-accent/80 disabled:opacity-50 transition-colors"
+                >
+                  {filterPromptSaving ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : (
+                    <Save size={12} />
+                  )}
+                  {filterPromptSaved ? "已保存" : "保存"}
+                </button>
+              </div>
+            )}
           </div>
+
         </SectionCard>
       </div>
     </div>

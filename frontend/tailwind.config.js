@@ -7,16 +7,17 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Custom dark theme palette
+        // Theme-aware colors via CSS variables
+        // All existing dark-* classes will auto-adapt to light/dark mode
         dark: {
-          bg: "#0a0a0f",
-          card: "#12121a",
-          surface: "#1a1a2e",
-          border: "#2a2a3e",
-          text: "#e0e0e8",
-          muted: "#8888a0",
-          accent: "#00d4aa",       // Emerald green for high scores
-          "accent-dim": "#1a6b50", // Dimmed green for lower scores
+          bg: "var(--bg)",
+          card: "var(--card)",
+          surface: "var(--surface)",
+          border: "var(--border)",
+          text: "var(--text)",
+          muted: "var(--muted)",
+          accent: "var(--accent)",
+          "accent-dim": "#1a6b50",
           warning: "#f59e0b",
           danger: "#ef4444",
         },

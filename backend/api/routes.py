@@ -126,24 +126,29 @@ async def list_articles(
     category: Optional[str] = Query(None),
     tags: Optional[str] = Query(None, description="Comma-separated interest tags"),
     keyword: Optional[str] = Query(None),
+    source_name: Optional[str] = Query(None, description="Filter by source name"),
     sort_by: str = Query("fetched_at", description="Sort field: fetched_at|published_at|importance|ai_relevance"),
     sort_order: str = Query("desc", description="Sort direction: asc|desc"),
     skip: int = Query(0, ge=0),
     limit: int = Query(30, ge=1, le=100),
 ):
-    """文章列表查询，支持状态/分类/标签/关键词过滤及多字段排序。"""
+    """文章列表查询，支持状态/分类/标签/关键词/信源过滤及多字段排序。"""
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
 
     if status == "selected":
         docs = await db.get_selected_articles(skip=skip, limit=limit, category=category,
                                               tags=tag_list, keyword=keyword,
-                                              sort_by=sort_by, sort_order=sort_order)
-        total = await db.count_selected_articles(category=category, tags=tag_list, keyword=keyword)
+                                              sort_by=sort_by, sort_order=sort_order,
+                                              source_name=source_name)
+        total = await db.count_selected_articles(category=category, tags=tag_list, keyword=keyword,
+                                                  source_name=source_name)
     else:
         docs = await db.get_all_articles(skip=skip, limit=limit, status=status,
                                          keyword=keyword,
-                                         sort_by=sort_by, sort_order=sort_order)
-        total = await db.count_articles(status=status, keyword=keyword)
+                                         sort_by=sort_by, sort_order=sort_order,
+                                         source_name=source_name)
+        total = await db.count_articles(status=status, keyword=keyword,
+                                        source_name=source_name)
 
     return {
         "total": total,
@@ -158,23 +163,36 @@ async def list_selected_articles(
     category: Optional[str] = Query(None),
     tags: Optional[str] = Query(None, description="Comma-separated interest tags"),
     keyword: Optional[str] = Query(None),
+    source_name: Optional[str] = Query(None, description="Filter by source name"),
     sort_by: str = Query("fetched_at", description="Sort field: fetched_at|published_at|importance|ai_relevance"),
     sort_order: str = Query("desc", description="Sort direction: asc|desc"),
     skip: int = Query(0, ge=0),
     limit: int = Query(30, ge=1, le=100),
 ):
-    """精选文章专属端点，支持分类/标签/关键词过滤及排序。"""
+    """精选文章专属端点，支持分类/标签/关键词/信源过滤及排序。"""
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
     docs = await db.get_selected_articles(skip=skip, limit=limit, category=category,
                                           tags=tag_list, keyword=keyword,
-                                          sort_by=sort_by, sort_order=sort_order)
-    total = await db.count_selected_articles(category=category, tags=tag_list, keyword=keyword)
+                                          sort_by=sort_by, sort_order=sort_order,
+                                          source_name=source_name)
+    total = await db.count_selected_articles(category=category, tags=tag_list, keyword=keyword,
+                                              source_name=source_name)
     return {
         "total": total,
         "skip": skip,
         "limit": limit,
         "items": [_serialize_doc(d) for d in docs],
     }
+
+
+@router.get("/api/articles/source-counts")
+async def get_article_source_counts(
+    status: Optional[str] = Query(None, description="Filter by status: selected|rejected|pending"),
+):
+    """获取每个信源的文章数量，支持按状态过滤。用于侧边栏信源导航。"""
+    counts = await db.get_source_article_counts(status=status)
+    total = sum(c["count"] for c in counts)
+    return {"total": total, "items": counts}
 
 
 @router.post("/api/articles/{url_hash}/star")
@@ -263,6 +281,7 @@ class SourceUpdate(BaseModel):
     tags: Optional[List[str]] = None
     fetch_interval_minutes: Optional[int] = None
     fetch_since: Optional[str] = None  # ISO date string or empty string to clear
+    pinned: Optional[bool] = None
 
 
 @router.get("/api/sources")
@@ -286,6 +305,8 @@ async def update_source(source_id: str, body: SourceUpdate):
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if body.enabled is not None:
         updates["enabled"] = body.enabled
+    if body.pinned is not None:
+        updates["pinned"] = body.pinned
     # Allow clearing fetch_since with empty string
     if body.fetch_since is not None:
         updates["fetch_since"] = body.fetch_since if body.fetch_since.strip() else None

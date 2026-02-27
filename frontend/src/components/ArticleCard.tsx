@@ -19,6 +19,8 @@ interface ArticleCardProps {
   selectionMode?: boolean;
   selected?: boolean;
   onToggleSelect?: (urlHash: string) => void;
+  /** 按信源分组时隐藏信源名称，避免冗余 */
+  hideSource?: boolean;
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -145,6 +147,7 @@ export default function ArticleCard({
   selectionMode = false,
   selected = false,
   onToggleSelect,
+  hideSource = false,
 }: ArticleCardProps) {
   const analysis = article.analysis;
   const displayTitle =
@@ -200,7 +203,7 @@ export default function ArticleCard({
           {displayTitle}
         </a>
         <span className="text-xs text-dark-muted flex-shrink-0 hidden md:block">
-          {article.source_name}
+          {!hideSource && article.source_name}
         </span>
         <span className="text-xs text-dark-muted flex-shrink-0">
           {formatTime(article.published_at || article.fetched_at)}
@@ -247,8 +250,12 @@ export default function ArticleCard({
             </button>
           )}
           <div className="flex items-center gap-2 text-xs text-dark-muted">
-            <span className="font-medium">{article.source_name || "Unknown"}</span>
-            <span>·</span>
+            {!hideSource && (
+              <>
+                <span className="font-medium">{article.source_name || "Unknown"}</span>
+                <span>·</span>
+              </>
+            )}
             <span>{formatTime(article.published_at || article.fetched_at)}</span>
             {!analysis && (
               <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 text-xs">
