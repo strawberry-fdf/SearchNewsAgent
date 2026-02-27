@@ -1,4 +1,5 @@
 ## [Completed]
+- 完成 package 分支到 main 分支的合并（以 package 为主），并已推送远程 origin/main
 - 移除 Docker 及 MongoDB 相关所有逻辑与文件，系统全面本地化，仅依赖 SQLite 单文件数据库
 - 后端 config/requirements/db/pipeline/api/models/env 等全部切换为 SQLite 配置与实现，彻底去除 mongo 相关引用
 - 删除 docker-compose.yml、backend/Dockerfile、frontend/Dockerfile、backend/storage/mongo.py 等遗留文件
