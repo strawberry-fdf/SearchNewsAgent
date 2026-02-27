@@ -103,10 +103,7 @@ async def _run_pipeline_bg():
 # ──────────────────────────────────────────────────────────────
 
 def _serialize_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
-    """将 DB 文档转换为 JSON 安全的 dict（ObjectId → str，datetime → ISO）。"""
-    if "_id" in doc:
-        doc["id"] = str(doc.pop("_id"))
-
+    """将 DB 文档转换为 JSON 安全的 dict（datetime → ISO 字符串）。"""
     for key in ("fetched_at", "analyzed_at", "published_at", "created_at", "last_fetched_at"):
         if key in doc and doc[key] is not None:
             if hasattr(doc[key], "isoformat"):
@@ -576,3 +573,28 @@ async def delete_pipeline_run(run_id: str):
     if not deleted:
         raise HTTPException(status_code=404, detail="Run not found")
     return {"status": "deleted"}
+
+
+# ──────────────────────────────────────────────────────────────
+# 文章缓存管理端点 (Cache Management)
+# ──────────────────────────────────────────────────────────────
+
+@router.get("/api/cache/stats")
+async def get_cache_stats():
+    """获取文章缓存统计信息：数据库文件大小、各信源缓存占用。"""
+    stats = await db.get_cache_stats()
+    return stats
+
+
+class CacheClearBody(BaseModel):
+    source_ids: Optional[List[str]] = Field(
+        default=None,
+        description="要清除的信源 ID 列表，为 null 或空时清除全部文章缓存",
+    )
+
+
+@router.post("/api/cache/clear")
+async def clear_cache(body: CacheClearBody):
+    """清除文章缓存数据（可按信源选择性清除或全部清除）。"""
+    deleted = await db.clear_article_cache(body.source_ids)
+    return {"status": "ok", "deleted": deleted}

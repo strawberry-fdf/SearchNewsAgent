@@ -3,6 +3,7 @@
 
 所有配置项均可通过环境变量覆盖，支持 .env 文件自动加载。
 在 backend 目录下创建 .env 文件即可完成本地开发配置。
+数据存储使用 SQLite，无需外部数据库服务。
 """
 
 import os
@@ -19,7 +20,7 @@ class Settings:
     应用级全局配置类。
 
     配置分组:
-    - MongoDB: 数据库连接（Docker 部署时使用）
+    - SQLite: 本地数据库路径
     - LLM: 大模型 Provider 选择与 API 密钥
     - Feishu: 飞书 Webhook 推送配置
     - Scheduler: 定时采集间隔
@@ -27,9 +28,8 @@ class Settings:
     - Logging: 日志级别
     """
 
-    # ---------- MongoDB（Docker 部署时可选） ----------
-    MONGO_URI: str = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-    MONGO_DB_NAME: str = os.getenv("MONGO_DB_NAME", "agent_news")
+    # ---------- SQLite 本地数据库 ----------
+    SQLITE_DB_PATH: str = os.getenv("SQLITE_DB_PATH", "agent_news.db")
 
     # ---------- LLM Provider 配置 ----------
     # 可选值: "openai" | "anthropic"，决定调用哪个大模型 API

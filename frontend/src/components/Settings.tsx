@@ -1,10 +1,10 @@
 /**
- * 设置页面组件 —— 管理主题切换、LLM 开关、筛选规则（预设+默认要求合并）。
+ * 设置页面组件 —— 管理主题切换、LLM 开关、筛选规则（预设+默认要求合并）、缓存管理。
  * 预设与手动筛选要求合并为统一的"筛选规则"区块，默认筛选要求作为兜底规则。
  */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   Settings2,
   Plus,
@@ -17,6 +17,8 @@ import {
   Check,
   Palette,
   Filter,
+  HardDrive,
+  AlertTriangle,
 } from "lucide-react";
 import clsx from "clsx";
 import {
@@ -28,8 +30,12 @@ import {
   toggleFilterPresetActive,
   deactivateFilterPresets,
   deleteFilterPreset,
+  getCacheStats,
+  clearCache,
   type AppSettings,
   type FilterPreset,
+  type CacheStats,
+  type CacheSourceStat,
 } from "@/lib/api";
 import { useTheme } from "./ThemeProvider";
 
@@ -117,6 +123,13 @@ export default function Settings() {
   const [presetSaving, setPresetSaving] = useState<string | null>(null);
   const [showDefaultPrompt, setShowDefaultPrompt] = useState(false);
 
+  // Cache management state
+  const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
+  const [cacheLoading, setCacheLoading] = useState(false);
+  const [cacheClearing, setCacheClearing] = useState(false);
+  const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(new Set());
+  const [showCacheConfirm, setShowCacheConfirm] = useState<"all" | "selected" | null>(null);
+
   useEffect(() => {
     loadAll();
   }, []);
@@ -140,6 +153,57 @@ export default function Settings() {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+    // Load cache stats in parallel (non-blocking)
+    loadCacheStats();
+  }
+
+  async function loadCacheStats() {
+    setCacheLoading(true);
+    try {
+      const stats = await getCacheStats();
+      setCacheStats(stats);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setCacheLoading(false);
+    }
+  }
+
+  // ── Cache management ──
+
+  function formatBytes(bytes: number): string {
+    if (bytes === 0) return "0 B";
+    const units = ["B", "KB", "MB", "GB"];
+    const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    const value = bytes / Math.pow(1024, i);
+    return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+  }
+
+  function toggleSourceSelection(sourceId: string) {
+    setSelectedSourceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(sourceId)) {
+        next.delete(sourceId);
+      } else {
+        next.add(sourceId);
+      }
+      return next;
+    });
+  }
+
+  async function handleClearCache(mode: "all" | "selected") {
+    setCacheClearing(true);
+    try {
+      const ids = mode === "selected" ? Array.from(selectedSourceIds) : null;
+      await clearCache(ids);
+      setSelectedSourceIds(new Set());
+      setShowCacheConfirm(null);
+      await loadCacheStats();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setCacheClearing(false);
     }
   }
 
@@ -480,6 +544,127 @@ export default function Settings() {
             )}
           </div>
 
+        </SectionCard>
+
+        {/* ── Cache Management ── */}
+        <SectionCard icon={HardDrive} title="缓存管理" subtitle="查看和清理已下载的文章缓存数据">
+          {cacheLoading && !cacheStats ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="animate-spin text-dark-muted" size={20} />
+            </div>
+          ) : cacheStats ? (
+            <div className="space-y-4">
+              {/* Overall stats */}
+              <div className="flex items-center justify-between rounded-lg bg-dark-surface border border-dark-border px-4 py-3">
+                <div className="space-y-1">
+                  <div className="text-sm font-medium">
+                    数据库文件大小：<span className="text-dark-accent">{formatBytes(cacheStats.db_file_size_bytes)}</span>
+                  </div>
+                  <div className="text-xs text-dark-muted">
+                    共 {cacheStats.total_articles} 篇文章缓存
+                  </div>
+                </div>
+                <button
+                  onClick={() => loadCacheStats()}
+                  disabled={cacheLoading}
+                  className="text-xs text-dark-muted hover:text-dark-text transition-colors px-2 py-1 rounded"
+                >
+                  {cacheLoading ? <Loader2 size={12} className="animate-spin" /> : "刷新"}
+                </button>
+              </div>
+
+              {/* Per-source cache list */}
+              {cacheStats.sources.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-xs text-dark-muted font-medium">按信源查看（勾选可选择性清除）：</p>
+                  <div className="max-h-60 overflow-y-auto space-y-1 rounded-lg border border-dark-border p-2 bg-dark-surface">
+                    {cacheStats.sources.map((src) => {
+                      const sid = src.source_id ?? src.source_name;
+                      const isSelected = selectedSourceIds.has(sid);
+                      return (
+                        <label
+                          key={sid}
+                          className={clsx(
+                            "flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors",
+                            isSelected ? "bg-dark-accent/10 border border-dark-accent/30" : "hover:bg-dark-card border border-transparent"
+                          )}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleSourceSelection(sid)}
+                            className="accent-[hsl(var(--accent))] w-4 h-4 rounded"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm truncate">{src.source_name}</div>
+                            <div className="text-xs text-dark-muted">
+                              {src.article_count} 篇 · 内容约 {formatBytes(src.estimated_bytes)}
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div className="flex flex-wrap gap-2">
+                {selectedSourceIds.size > 0 && (
+                  <button
+                    onClick={() => setShowCacheConfirm("selected")}
+                    disabled={cacheClearing}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-orange-500/10 border border-orange-500/30 text-orange-400 text-sm font-medium hover:bg-orange-500/20 disabled:opacity-50 transition-colors"
+                  >
+                    <Trash2 size={14} />
+                    清除所选（{selectedSourceIds.size} 个信源）
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowCacheConfirm("all")}
+                  disabled={cacheClearing || cacheStats.total_articles === 0}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-medium hover:bg-red-500/20 disabled:opacity-50 transition-colors"
+                >
+                  <Trash2 size={14} />
+                  清除全部缓存
+                </button>
+              </div>
+
+              {/* Confirm dialog */}
+              {showCacheConfirm && (
+                <div className="rounded-xl border border-red-500/40 bg-red-500/5 p-4 space-y-3">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle size={16} className="text-red-400 mt-0.5 flex-shrink-0" />
+                    <div className="text-sm">
+                      {showCacheConfirm === "all" ? (
+                        <span>确定要清除 <strong>全部 {cacheStats.total_articles} 篇</strong> 文章缓存吗？此操作不可撤销。</span>
+                      ) : (
+                        <span>确定要清除选中的 <strong>{selectedSourceIds.size} 个信源</strong> 的文章缓存吗？此操作不可撤销。</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleClearCache(showCacheConfirm)}
+                      disabled={cacheClearing}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-500 text-white text-sm font-medium hover:bg-red-600 disabled:opacity-50 transition-colors"
+                    >
+                      {cacheClearing ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                      {cacheClearing ? "清除中..." : "确认清除"}
+                    </button>
+                    <button
+                      onClick={() => setShowCacheConfirm(null)}
+                      className="px-4 py-2 rounded-lg border border-dark-border text-sm text-dark-muted hover:text-dark-text transition-colors"
+                    >
+                      取消
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-dark-muted">无法加载缓存信息</p>
+          )}
         </SectionCard>
       </div>
     </div>

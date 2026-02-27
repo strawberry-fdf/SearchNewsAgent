@@ -2,7 +2,7 @@
 
 用途:
 - LLMAnalysis: LLM 结构化输出的校验 Schema
-- ArticleDocument: MongoDB/SQLite 文档映射
+- ArticleDocument: SQLite 表行映射
 - 枚举类: 分类、状态、拒绝原因等约束定义
 """
 
@@ -65,15 +65,15 @@ class LLMAnalysis(BaseModel):
 
 
 # ──────────────────────────────────────────────────────────────
-# Full article document (maps to MongoDB)
+# Full article document (maps to SQLite articles table)
 # ──────────────────────────────────────────────────────────────
 
 class ArticleDocument(BaseModel):
-    """Represents a single article record stored in MongoDB."""
+    """Represents a single article record stored in SQLite."""
 
     url: str
     url_hash: str = Field(..., description="SHA-256 of url, used as dedup key")
-    source_id: Optional[str] = None  # reference to source document _id
+    source_id: Optional[str] = None  # reference to source id
     source_name: Optional[str] = None  # human-readable source name
 
     # ---- raw content ----

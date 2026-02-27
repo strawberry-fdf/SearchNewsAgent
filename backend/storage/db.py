@@ -1,7 +1,7 @@
 """
 存储层 —— SQLite 异步实现 (aiosqlite)。
 
-替代 MongoDB，实现单机免运维部署，提供与 MongoDB版相同的 CRUD 接口。
+唯一的本地存储后端，无需外部数据库服务。
 内部数据表:
   - sources:    信源配置表
   - articles:   文章主表（抓取+分析+筛选结果）
@@ -21,9 +21,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from backend.config import settings
+
 logger = logging.getLogger(__name__)
 
-DB_PATH = "agent_news.db"
+# 数据库文件存放在项目根目录下，可通过环境变量覆盖
+DB_PATH: str = str(Path(__file__).resolve().parent.parent.parent / settings.SQLITE_DB_PATH)
 _db_pool: Optional[aiosqlite.Connection] = None
 
 # 自定义 JSON 编解码器，处理 SQLite TEXT 字段中存储的复杂类型 (datetime 等)
@@ -185,7 +188,7 @@ def _row_to_dict(row: aiosqlite.Row) -> Dict[str, Any]:
         d["analysis"] = d.pop("analysis_json")
 
     # Convert booleans
-    for k in ["enabled", "model_selected", "starred"]:
+    for k in ["enabled", "model_selected", "starred", "pinned"]:
         if k in d:
             d[k] = bool(d[k])
 
@@ -808,3 +811,94 @@ async def delete_filter_preset(preset_id: str) -> bool:
     cursor = await db.execute("DELETE FROM filter_presets WHERE id = ?", (preset_id,))
     await db.commit()
     return cursor.rowcount > 0
+
+
+# ──────────────────────────────────────────────────────────────
+# 文章缓存管理 (Cache Management)
+# ──────────────────────────────────────────────────────────────
+
+async def get_cache_stats() -> Dict[str, Any]:
+    """获取数据库文件大小以及各信源的文章缓存占用估算。
+
+    Returns
+    -------
+    dict
+        {
+            "db_file_size_bytes": int,
+            "total_articles": int,
+            "sources": [
+                {"source_name": str, "source_id": str | None, "article_count": int, "estimated_bytes": int},
+                ...
+            ],
+        }
+    """
+    db_file = Path(DB_PATH)
+    db_file_size = db_file.stat().st_size if db_file.exists() else 0
+
+    conn = await get_db()
+    # 总文章数
+    cursor = await conn.execute("SELECT COUNT(*) FROM articles")
+    row = await cursor.fetchone()
+    total_articles: int = row[0] if row else 0
+
+    # 每个信源的文章数量 + 估算空间（raw_html + clean_markdown 的总长度）
+    cursor = await conn.execute("""
+        SELECT
+            source_name,
+            source_id,
+            COUNT(*) AS cnt,
+            COALESCE(SUM(LENGTH(raw_html)), 0) + COALESCE(SUM(LENGTH(clean_markdown)), 0) AS content_bytes
+        FROM articles
+        GROUP BY source_name
+        ORDER BY content_bytes DESC
+    """)
+    rows = await cursor.fetchall()
+    sources = [
+        {
+            "source_name": r[0] or "未知信源",
+            "source_id": r[1],
+            "article_count": r[2],
+            "estimated_bytes": r[3],
+        }
+        for r in rows
+    ]
+
+    return {
+        "db_file_size_bytes": db_file_size,
+        "total_articles": total_articles,
+        "sources": sources,
+    }
+
+
+async def clear_article_cache(source_ids: Optional[List[str]] = None) -> int:
+    """清除文章缓存数据。
+
+    Parameters
+    ----------
+    source_ids : list of str, optional
+        要清除的信源 ID 列表。若为 None 或空列表则清除全部文章。
+
+    Returns
+    -------
+    int
+        被删除的文章条数。
+    """
+    conn = await get_db()
+    if source_ids:
+        placeholders = ",".join(["?"] * len(source_ids))
+        cursor = await conn.execute(
+            f"DELETE FROM articles WHERE source_id IN ({placeholders})",
+            source_ids,
+        )
+    else:
+        cursor = await conn.execute("DELETE FROM articles")
+    await conn.commit()
+    deleted = cursor.rowcount
+
+    # VACUUM 回收磁盘空间
+    try:
+        await conn.execute("VACUUM")
+    except Exception:
+        pass  # VACUUM 在 WAL 模式或事务中可能失败，忽略即可
+
+    return deleted

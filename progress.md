@@ -1,16 +1,21 @@
 ## [Completed]
-- SourcePanel 全面重写：展示全部信源（含禁用），禁用信源灰显+状态圆点；编辑模式支持信源/分类重命名、置顶、取消订阅
-- 后端新增 pinned 列（sources 表）+ API 支持置顶切换，信源按 pinned→名称排序
-- Settings 主题外观改为下拉框（亮色/暗色/跟随系统），移除卡片选择器
-- Settings 精简所有描述文案：LLM 卡片移除冗长说明框，筛选规则卡片移除底部大段注释
-- 信源导航面板（SourcePanel）：文章 Tab 左侧展示按分类分组的信源列表，支持搜索、点击切换信源过滤
-- 筛选规则预设与手动筛选要求合并为统一的「筛选规则」卡片，默认筛选要求作为可折叠兜底项
-- Tailwind 颜色系统改为 CSS 变量驱动（dark-* 类自动适配主题），globals.css 新增 light 主题变量
-- 全面重写 LLM System Prompt（prompts.py）：严格评分标准、强制约束 6 条、禁止虚高评分
-- 编写完整系统说明文档 `系统说明文档.md`（9 大章节）
+- 移除 Docker 及 MongoDB 相关所有逻辑与文件，系统全面本地化，仅依赖 SQLite 单文件数据库
+- 后端 config/requirements/db/pipeline/api/models/env 等全部切换为 SQLite 配置与实现，彻底去除 mongo 相关引用
+- 删除 docker-compose.yml、backend/Dockerfile、frontend/Dockerfile、backend/storage/mongo.py 等遗留文件
+- 新增文章缓存管理功能：后端提供 /api/cache/stats 与 /api/cache/clear，支持统计数据库空间、按信源/全部清理缓存
+- 前端 Settings 页面新增缓存管理区块，支持查看总占用、按信源勾选清理、全部清理、二次确认弹窗
+- 其它 UI/功能优化：筛选规则合并、主题切换、信源导航、LLM prompt 优化等
+
+---
+【2026-02】去中心化/本地化与缓存管理大改动：
+- 移除 Docker 及 MongoDB 相关所有逻辑与文件，系统全面本地化，仅依赖 SQLite 单文件数据库
+- 后端 config/requirements/db/pipeline/api/models/env 等全部切换为 SQLite 配置与实现，彻底去除 mongo 相关引用
+- 删除 docker-compose.yml、backend/Dockerfile、frontend/Dockerfile、backend/storage/mongo.py 等遗留文件
+- 新增文章缓存管理功能：后端提供 /api/cache/stats 与 /api/cache/clear，支持统计数据库空间、按信源/全部清理缓存
+- 前端 Settings 页面新增缓存管理区块，支持查看总占用、按信源勾选清理、全部清理、二次确认弹窗
 
 ## [In Progress]
-- 无
+
 
 ## [Next Steps]
 1. 部署运行后端联调，验证信源过滤 + 多预设叠加评分效果

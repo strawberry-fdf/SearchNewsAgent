@@ -374,3 +374,31 @@ export async function getPipelineRuns(): Promise<{ items: PipelineRun[] }> {
 export async function deletePipelineRun(runId: string): Promise<void> {
   await fetchJSON(`/api/admin/pipeline-runs/${runId}`, { method: "DELETE" });
 }
+
+// ── 文章缓存管理 ──
+
+export interface CacheSourceStat {
+  source_name: string;
+  source_id: string | null;
+  article_count: number;
+  estimated_bytes: number;
+}
+
+export interface CacheStats {
+  db_file_size_bytes: number;
+  total_articles: number;
+  sources: CacheSourceStat[];
+}
+
+export async function getCacheStats(): Promise<CacheStats> {
+  return fetchJSON("/api/cache/stats");
+}
+
+export async function clearCache(
+  sourceIds?: string[] | null,
+): Promise<{ status: string; deleted: number }> {
+  return fetchJSON("/api/cache/clear", {
+    method: "POST",
+    body: JSON.stringify({ source_ids: sourceIds ?? null }),
+  });
+}

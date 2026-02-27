@@ -104,7 +104,7 @@ export default function SourcePanel({
   const [editingSourceId, setEditingSourceId] = useState<string | null>(null);
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
 
-  // 加载信源列表和计数（展示全部信源，不按 enabled 过滤）
+  // 加载信源列表和计数：精选模式按 selected 过滤，其它模式取全部
   useEffect(() => {
     const status = mode === "feed" ? "selected" : undefined;
     Promise.all([
@@ -415,7 +415,7 @@ export default function SourcePanel({
                         ) : !editMode ? (
                           /* 正常模式：显示置顶图标（如有）+ 计数 */
                           <>
-                            {source.pinned && (
+                            {!!source.pinned && (
                               <Pin size={10} className="text-dark-accent/60 flex-shrink-0" />
                             )}
                             <span

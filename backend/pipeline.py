@@ -1,4 +1,4 @@
-"""
+﻿"""
 流水线编排模块 —— 端到端全流程：采集 → LLM 分析 → 规则过滤 → 入库 → 通知推送。
 
 这是系统的核心编排器，由定时调度器或管理员手动触发。
@@ -25,7 +25,7 @@ from backend.ingestion.web_scraper import scrape_web_page
 from backend.llm.extractor import analyse_article
 from backend.notification.feishu import send_feishu_notification
 from backend.rules.engine import evaluate_article
-from backend.storage import db as mongo
+from backend.storage import db
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ async def run_ingestion_pipeline(
     stats = {"fetched": 0, "duplicates": 0, "analysed": 0, "selected": 0, "rejected": 0, "errors": 0}
 
     # ── Step 1: 获取所有启用的信源列表 ──
-    sources = await mongo.get_all_sources(enabled_only=True)
+    sources = await db.get_all_sources(enabled_only=True)
     if not sources:
         emit("⚠️ 没有启用的信源，请先添加信源")
         return stats
@@ -70,7 +70,7 @@ async def run_ingestion_pipeline(
     for source in sources:
         source_type = source.get("source_type", "rss")
         source_url = source["url"]
-        source_id = str(source.get("id") or source.get("_id") or "")
+        source_id = str(source.get("id", ""))
         source_name = source.get("name", "")
         source_tags = source.get("tags") or []
 
@@ -89,15 +89,15 @@ async def run_ingestion_pipeline(
             dup_count = 0
             for article in articles:
                 h = article["url_hash"]
-                if await mongo.article_exists(h):
+                if await db.article_exists(h):
                     dup_count += 1
                     stats["duplicates"] += 1
                     continue
-                await mongo.insert_article(article)
+                await db.insert_article(article)
                 stats["fetched"] += 1
                 new_count += 1
 
-            await mongo.update_source_last_fetched(source_url)
+            await db.update_source_last_fetched(source_url)
             emit(f"   ✅ {source_name}: 新增 {new_count} 篇，重复 {dup_count} 篇")
 
         except Exception as exc:
@@ -108,10 +108,10 @@ async def run_ingestion_pipeline(
     emit(f"📥 抓取完成: 新增 {stats['fetched']} 篇，重复 {stats['duplicates']} 篇")
 
     # ── Step 3 & 4: LLM 分析 + 规则引擎过滤 ──
-    pending = await mongo.get_pending_articles(limit=100)
+    pending = await db.get_pending_articles(limit=100)
     emit(f"🤖 待分析文章: {len(pending)} 篇")
 
-    app_settings = await mongo.get_settings()
+    app_settings = await db.get_settings()
     llm_enabled: bool = app_settings.get("llm_enabled", True)
     # Use per-run filter_prompt if provided, else fall back to setting
     active_filter_prompt = filter_prompt or app_settings.get("llm_filter_prompt", "")
@@ -120,7 +120,7 @@ async def run_ingestion_pipeline(
         emit("⚡ LLM 已关闭 – 全部文章直接入选")
         for doc in pending:
             raw_title = doc.get("raw_title") or doc.get("title") or doc.get("url", "")
-            await mongo.update_article(doc["url_hash"], {
+            await db.update_article(doc["url_hash"], {
                 "status": "selected",
                 "rejection_reason": "",
                 "analyzed_at": datetime.now(timezone.utc),
@@ -138,8 +138,8 @@ async def run_ingestion_pipeline(
         emit(f"🔍 [{idx}/{len(pending)}] 分析: {title_preview}")
 
         if not content.strip():
-            emit(f"   ⚠️ 内容为空，跳过")
-            await mongo.update_article(h, {
+            emit("   ⚠️ 内容为空，跳过")
+            await db.update_article(h, {
                 "status": "rejected",
                 "rejection_reason": "REJECTED_EMPTY_CONTENT",
                 "analyzed_at": datetime.now(timezone.utc),
@@ -149,8 +149,8 @@ async def run_ingestion_pipeline(
 
         analysis = await analyse_article(content, filter_prompt=active_filter_prompt)
         if analysis is None:
-            emit(f"   ❌ LLM 分析失败")
-            await mongo.update_article(h, {
+            emit("   ❌ LLM 分析失败")
+            await db.update_article(h, {
                 "status": "rejected",
                 "rejection_reason": "REJECTED_LLM_FAILURE",
                 "analyzed_at": datetime.now(timezone.utc),
@@ -164,16 +164,16 @@ async def run_ingestion_pipeline(
         source_id = doc.get("source_id")
         source_tags = []
         if source_id:
-            all_sources = await mongo.get_all_sources(enabled_only=False)
+            all_sources = await db.get_all_sources(enabled_only=False)
             for s in all_sources:
-                s_id = str(s.get("id") or s.get("_id") or "")
+                s_id = str(s.get("id", ""))
                 if s_id == source_id:
                     source_tags = s.get("tags") or []
                     break
 
         status, reason = evaluate_article(analysis_dict, source_tags)
 
-        await mongo.update_article(h, {
+        await db.update_article(h, {
             "analysis": analysis_dict,
             "status": status,
             "rejection_reason": reason,
