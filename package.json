@@ -1,0 +1,37 @@
+{
+  "name": "agent-news",
+  "version": "1.0.0",
+  "description": "AgentNews - AI 智能资讯精选系统 (Electron 桌面版)",
+  "author": "strawberry-fdf",
+  "license": "MIT",
+  "main": "electron/main.js",
+  "scripts": {
+    "----------- 开发 -----------": "",
+    "electron:dev": "electron .",
+    "dev:all": "concurrently --names backend,frontend,electron --prefix-colors cyan,green,magenta \"cd backend && python -m backend.main\" \"cd frontend && npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "----------- 前端构建 -----------": "",
+    "build:frontend": "npm run build:electron --prefix frontend",
+    "----------- 后端构建 (PyInstaller) -----------": "",
+    "build:backend:win": "powershell -ExecutionPolicy Bypass -File scripts/build-backend.ps1",
+    "build:backend:linux": "bash scripts/build-backend.sh",
+    "----------- Electron 打包 -----------": "",
+    "build:win": "npm run build:frontend && npm run build:backend:win && electron-builder --win",
+    "build:linux": "npm run build:frontend && npm run build:backend:linux && electron-builder --linux",
+    "build:all": "npm run build:frontend && electron-builder --win --linux",
+    "----------- 工具 -----------": "",
+    "clean": "rimraf dist build frontend/out frontend/.next",
+    "postinstall": "cd frontend && npm install"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.0",
+    "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3",
+    "wait-on": "^8.0.0",
+    "rimraf": "^6.0.0"
+  },
+  "build": {
+    "extends": "electron-builder.yml"
+  }
+}

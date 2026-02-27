@@ -1,0 +1,114 @@
+# ============================================================
+# electron-builder 配置 —— AgentNews 桌面应用打包
+# ============================================================
+# 文档: https://www.electron.build/configuration
+
+appId: "com.agentnews.desktop"
+productName: "AgentNews"
+copyright: "Copyright © 2024-2026 strawberry-fdf"
+
+# ── 目录 ─────────────────────────────────────────────────────
+directories:
+  output: dist
+  buildResources: build
+
+# ── 通用文件（Electron 主进程代码） ────────────────────────────
+files:
+  - "electron/**/*"
+  - "package.json"
+  - "!node_modules"
+  - "!frontend"
+  - "!backend"
+  - "!scripts"
+  - "!venv"
+  - "!.github"
+
+# ── 额外资源（与 app.asar 同级的 resources 目录） ─────────────
+extraResources:
+  # PyInstaller 打包后的后端可执行程序
+  - from: "build/backend/"
+    to: "backend"
+    filter:
+      - "**/*"
+      - "!**/*.db"
+      - "!**/*.sqlite"
+      - "!**/*.sqlite3"
+      - "!**/__pycache__/**"
+      - "!**/venv/**"
+  # Next.js 静态导出的前端文件
+  - from: "frontend/out/"
+    to: "frontend"
+    filter:
+      - "**/*"
+  # 默认环境变量模板（首次启动时复制到用户数据目录）
+  - from: "build/default.env"
+    to: "default.env"
+
+# ── ASAR 打包 ────────────────────────────────────────────────
+asar: true
+asarUnpack:
+  - "electron/preload.js"
+
+# ── Windows 配置 ──────────────────────────────────────────────
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  icon: "build/icon.ico"
+  artifactName: "${productName}-${version}-win-${arch}.${ext}"
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: "build/icon.ico"
+  uninstallerIcon: "build/icon.ico"
+  installerHeaderIcon: "build/icon.ico"
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: "AgentNews"
+  license: null
+
+portable:
+  artifactName: "${productName}-${version}-portable.${ext}"
+
+# ── Linux 配置 ────────────────────────────────────────────────
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+  icon: "build/icon.png"
+  category: "Utility;Network"
+  artifactName: "${productName}-${version}-linux-${arch}.${ext}"
+  desktop:
+    Name: "AgentNews"
+    Comment: "AI 智能资讯精选系统"
+    Terminal: false
+    Type: Application
+    Categories: "Utility;Network"
+
+appImage:
+  artifactName: "${productName}-${version}.AppImage"
+
+deb:
+  artifactName: "${productName}-${version}-amd64.deb"
+  depends:
+    - "libgtk-3-0"
+    - "libnotify4"
+    - "libnss3"
+    - "libxss1"
+    - "libxtst6"
+    - "xdg-utils"
+    - "libatspi2.0-0"
+    - "libuuid1"
+
+# ── 发布配置（默认不上传，仅本地打包） ─────────────────────────
+publish: null

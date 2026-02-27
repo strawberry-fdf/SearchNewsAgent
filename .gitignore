@@ -26,6 +26,12 @@ out/
 dist/
 build/
 
+# Electron / PyInstaller 打包临时文件
+pyinstaller_dist/
+pyinstaller_build/
+*.spec
+frontend/out/
+
 # IDE
 .vscode/
 .idea/

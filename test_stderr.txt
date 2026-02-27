@@ -1,0 +1,82 @@
+INFO:     Started server process [16444]
+INFO:     Waiting for application startup.
+--- Logging error ---
+Traceback (most recent call last):
+  File "logging\__init__.py", line 1103, in emit
+UnicodeEncodeError: 'gbk' codec can't encode character '\U0001f680' in position 45: illegal multibyte sequence
+Call stack:
+  File "electron-entry.py", line 72, in <module>
+  File "electron-entry.py", line 68, in main
+  File "uvicorn\main.py", line 577, in run
+  File "uvicorn\server.py", line 65, in run
+  File "asyncio\runners.py", line 44, in run
+  File "asyncio\base_events.py", line 636, in run_until_complete
+  File "asyncio\windows_events.py", line 321, in run_forever
+  File "asyncio\base_events.py", line 603, in run_forever
+  File "asyncio\base_events.py", line 1906, in _run_once
+  File "asyncio\events.py", line 80, in _run
+  File "uvicorn\lifespan\on.py", line 86, in main
+  File "uvicorn\middleware\proxy_headers.py", line 70, in __call__
+  File "fastapi\applications.py", line 1160, in __call__
+  File "starlette\applications.py", line 107, in __call__
+  File "starlette\middleware\errors.py", line 151, in __call__
+  File "starlette\middleware\cors.py", line 79, in __call__
+  File "starlette\middleware\exceptions.py", line 49, in __call__
+  File "fastapi\middleware\asyncexitstack.py", line 18, in __call__
+  File "starlette\routing.py", line 716, in __call__
+  File "starlette\routing.py", line 725, in app
+  File "starlette\routing.py", line 694, in lifespan
+  File "contextlib.py", line 199, in __aenter__
+  File "fastapi\routing.py", line 201, in merged_lifespan
+  File "contextlib.py", line 199, in __aenter__
+  File "D:\AgentNews\build\backend\_internal\backend\main.py", line 72, in lifespan
+    logger.info("\U0001f680 AgentNews backend started.")
+  File "logging\__init__.py", line 1477, in info
+  File "logging\__init__.py", line 1624, in _log
+  File "logging\__init__.py", line 1634, in handle
+  File "logging\__init__.py", line 1696, in callHandlers
+  File "logging\__init__.py", line 968, in handle
+  File "logging\__init__.py", line 1108, in emit
+Message: '\U0001f680 AgentNews backend started.'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "logging\__init__.py", line 1103, in emit
+UnicodeEncodeError: 'gbk' codec can't encode character '\u23f0' in position 45: illegal multibyte sequence
+Call stack:
+  File "electron-entry.py", line 72, in <module>
+  File "electron-entry.py", line 68, in main
+  File "uvicorn\main.py", line 577, in run
+  File "uvicorn\server.py", line 65, in run
+  File "asyncio\runners.py", line 44, in run
+  File "asyncio\base_events.py", line 636, in run_until_complete
+  File "asyncio\windows_events.py", line 321, in run_forever
+  File "asyncio\base_events.py", line 603, in run_forever
+  File "asyncio\base_events.py", line 1906, in _run_once
+  File "asyncio\events.py", line 80, in _run
+  File "uvicorn\lifespan\on.py", line 86, in main
+  File "uvicorn\middleware\proxy_headers.py", line 70, in __call__
+  File "fastapi\applications.py", line 1160, in __call__
+  File "starlette\applications.py", line 107, in __call__
+  File "starlette\middleware\errors.py", line 151, in __call__
+  File "starlette\middleware\cors.py", line 79, in __call__
+  File "starlette\middleware\exceptions.py", line 49, in __call__
+  File "fastapi\middleware\asyncexitstack.py", line 18, in __call__
+  File "starlette\routing.py", line 716, in __call__
+  File "starlette\routing.py", line 725, in app
+  File "starlette\routing.py", line 694, in lifespan
+  File "contextlib.py", line 199, in __aenter__
+  File "fastapi\routing.py", line 201, in merged_lifespan
+  File "contextlib.py", line 199, in __aenter__
+  File "D:\AgentNews\build\backend\_internal\backend\main.py", line 83, in lifespan
+    logger.info("\u23f0 Scheduler started (interval=%d min).", settings.FETCH_INTERVAL_MINUTES)
+  File "logging\__init__.py", line 1477, in info
+  File "logging\__init__.py", line 1624, in _log
+  File "logging\__init__.py", line 1634, in handle
+  File "logging\__init__.py", line 1696, in callHandlers
+  File "logging\__init__.py", line 968, in handle
+  File "logging\__init__.py", line 1108, in emit
+Message: '\u23f0 Scheduler started (interval=%d min).'
+Arguments: (30,)
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
