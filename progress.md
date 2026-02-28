@@ -1,14 +1,10 @@
 ## [Completed]
-- 完成 package 分支到 main 分支的合并（以 package 为主），并已推送远程 origin/main
-- 移除 Docker 及 MongoDB 相关所有逻辑与文件，系统全面本地化，仅依赖 SQLite 单文件数据库
-- 后端 config/requirements/db/pipeline/api/models/env 等全部切换为 SQLite 配置与实现，彻底去除 mongo 相关引用
-- 删除 docker-compose.yml、backend/Dockerfile、frontend/Dockerfile、backend/storage/mongo.py 等遗留文件
-- 新增文章缓存管理功能：后端提供 /api/cache/stats 与 /api/cache/clear，支持统计数据库空间、按信源/全部清理缓存
-- 前端 Settings 页面新增缓存管理区块，支持查看总占用、按信源勾选清理、全部清理、二次确认弹窗
-- Electron 桌面应用打包框架搭建完成，支持 Windows (NSIS/Portable) + Linux (AppImage/deb) 跨平台分发
-- Windows 打包完成: 升级 Node.js v16→v24, 解决 pathlib/PyInstaller 冲突, 生成 NSIS 安装包 + 便携版 (~179MB)
+- 大模型配置重构为多配置单激活模式: 参考筛选规则交互设计，支持保存多条 LLM 配置（名称/模型/API Key/Base URL），每次仅激活一个；删除 LLM 提供商选项，统一 OpenAI 兼容模式支持任意模型；新建/编辑配置改为屏幕中央弹窗；缓存管理只显示文章数据大小
 - 修复打包三大问题: ①后端改 --windowed + windowsHide 消除控制台弹窗; ②去掉 loading.html 实现无感启动; ③排除 venv/__pycache__/.db 减小包体至 ~173MB
 - 修复 ModuleNotFoundError (fastapi.middleware.cors): PyInstaller 改用 --collect-submodules 递归收集 fastapi/starlette/uvicorn/pydantic/openai/anthropic/httpcore 全部子模块
+- 删除信源时级联删除对应文章: `delete_source()` 先查信源名再删 articles 再删 sources，确保数据库一致性
+- 信源面板置顶功能完善: 分类置顶（pinned_categories 存 settings 表，有序列表）+ 信源置顶（pin_order 字段按先后排序），编辑模式下分类头部新增置顶按钮，正常模式显示 Pin 图标
+- 修复缓存统计不一致问题: 信源估算字节数扩展为包含所有文本字段（raw_html/clean_markdown/title/summary/analysis_json 等）+ WAL 文件大小
 
 ---
 【2026-02】Electron 桌面打包方案：
@@ -29,7 +25,11 @@
 
 ## [Key Decisions / Context]
 - SourcePanel 展示全部信源（不再过滤 enabled），禁用信源以半透明+灰色圆点区分，启用信源显示绿色圆点
-- 编辑模式：点击铅笔图标进入，支持内联重命名（信源/分类）、置顶（Pin）、取消订阅（确认弹窗）；分类中有置顶信源的排在前面
+- 编辑模式：点击铅笔图标进入，支持内联重命名（信源/分类）、置顶（Pin）、取消订阅（确认弹窗）；分类支持独立置顶（Pin 按钮），信源置顶按 pin_order 排序
+- 删除信源时级联删除该信源下的所有文章，保持数据库一致性
+- 分类置顶数据存储在 settings 表的 pinned_categories 键中（有序列表），信源置顶增加 pin_order 字段
+- **大模型配置**: 重构为多配置单激活模式（llm_configs 表），删除 LLM 提供商选项，仅保留模型名/API Key/Base URL，统一使用 OpenAI 兼容客户端支持任意模型；新建/编辑配置通过屏幕中央弹窗；激活的配置优先级高于环境变量
+- 缓存管理统计: 只显示文章数据大小和文章数，不再显示其他占用
 - 信源导航面板（SourcePanel）位于 Sidebar 与 ArticleFeed 之间，仅在 feed/all/starred Tab 时显示
 - 后端所有文章查询/计数函数均支持 source_name 可选过滤，新增 get_source_article_counts() 按信源聚合
 - 主题系统采用 CSS 变量 + Tailwind 映射方案，ThemeProvider 使用 React Context + localStorage 持久化

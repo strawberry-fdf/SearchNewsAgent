@@ -43,17 +43,17 @@ def _truncate_content(text: str, max_tokens: int) -> str:
 # Provider implementations
 # ──────────────────────────────────────────────────────────────
 
-async def _call_openai(content: str, system_prompt: str) -> str:
+async def _call_openai(content: str, system_prompt: str, api_key: str = "", base_url: str = "", model: str = "") -> str:
     """Call OpenAI API and return raw response text."""
     from openai import AsyncOpenAI
 
     client = AsyncOpenAI(
-        api_key=settings.OPENAI_API_KEY,
-        base_url=settings.OPENAI_BASE_URL,
+        api_key=api_key or settings.OPENAI_API_KEY,
+        base_url=base_url or settings.OPENAI_BASE_URL,
     )
 
     response = await client.chat.completions.create(
-        model=settings.OPENAI_MODEL,
+        model=model or settings.OPENAI_MODEL,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": USER_PROMPT_TEMPLATE.format(content=content)},
@@ -65,14 +65,14 @@ async def _call_openai(content: str, system_prompt: str) -> str:
     return response.choices[0].message.content or ""
 
 
-async def _call_anthropic(content: str, system_prompt: str) -> str:
+async def _call_anthropic(content: str, system_prompt: str, api_key: str = "", model: str = "") -> str:
     """Call Anthropic API and return raw response text."""
     from anthropic import AsyncAnthropic
 
-    client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+    client = AsyncAnthropic(api_key=api_key or settings.ANTHROPIC_API_KEY)
 
     response = await client.messages.create(
-        model=settings.ANTHROPIC_MODEL,
+        model=model or settings.ANTHROPIC_MODEL,
         max_tokens=1024,
         system=system_prompt,
         messages=[
@@ -94,10 +94,28 @@ async def analyse_article(content: str, filter_prompt: str = "") -> Optional[LLM
     Send article content to the configured LLM and return a validated
     LLMAnalysis object, or None if extraction / validation fails.
     filter_prompt: optional additional filtering instructions appended to the system prompt.
+
+    LLM 配置优先级: 激活的 LLM 配置 (llm_configs 表) > 环境变量 (.env / config.py)
     """
     if not content or not content.strip():
         logger.warning("Empty content received, skipping LLM analysis.")
         return None
+
+    # 从 DB 获取当前激活的 LLM 配置（优先于环境变量）
+    from backend.storage import db as db_module
+    try:
+        active_config = await db_module.get_active_llm_config()
+    except Exception:
+        active_config = None
+
+    if active_config:
+        cfg_model = (active_config.get("model") or "").strip()
+        cfg_api_key = (active_config.get("api_key") or "").strip()
+        cfg_base_url = (active_config.get("base_url") or "").strip()
+    else:
+        cfg_model = ""
+        cfg_api_key = ""
+        cfg_base_url = ""
 
     # Build system prompt
     system_prompt = SYSTEM_PROMPT
@@ -128,14 +146,21 @@ async def analyse_article(content: str, filter_prompt: str = "") -> Optional[LLM
     truncated = _truncate_content(content, settings.MAX_CONTENT_TOKENS)
 
     try:
-        provider = settings.LLM_PROVIDER.lower()
-        if provider == "openai":
-            raw_json = await _call_openai(truncated, system_prompt)
-        elif provider == "anthropic":
-            raw_json = await _call_anthropic(truncated, system_prompt)
+        if active_config:
+            # 使用激活的 LLM 配置（统一 OpenAI 兼容模式，支持任意提供商）
+            raw_json = await _call_openai(
+                truncated, system_prompt,
+                api_key=cfg_api_key or settings.OPENAI_API_KEY,
+                base_url=cfg_base_url or settings.OPENAI_BASE_URL,
+                model=cfg_model or settings.OPENAI_MODEL,
+            )
         else:
-            logger.error("Unknown LLM provider: %s", provider)
-            return None
+            # 无激活配置，根据环境变量选择提供商
+            provider = settings.LLM_PROVIDER.lower()
+            if provider == "anthropic":
+                raw_json = await _call_anthropic(truncated, system_prompt)
+            else:
+                raw_json = await _call_openai(truncated, system_prompt)
 
         logger.debug("Raw LLM response: %s", raw_json[:500])
 

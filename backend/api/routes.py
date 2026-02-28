@@ -7,6 +7,7 @@ FastAPI 路由定义 —— 系统所有 REST API 端点。
 - /api/sources/*          信源 CRUD 管理
 - /api/settings           全局设置读写
 - /api/filter-presets/*   筛选规则预设管理
+- /api/llm-configs/*      LLM 配置管理（多配置单激活）
 - /api/tags/*             用户兴趣标签
 - /api/rules/*            关键词过滤规则
 - /api/admin/*            流水线触发与状态监控（含 SSE 实时日志流）
@@ -279,6 +280,7 @@ class SourceUpdate(BaseModel):
     fetch_interval_minutes: Optional[int] = None
     fetch_since: Optional[str] = None  # ISO date string or empty string to clear
     pinned: Optional[bool] = None
+    pin_order: Optional[int] = None
 
 
 @router.get("/api/sources")
@@ -304,6 +306,8 @@ async def update_source(source_id: str, body: SourceUpdate):
         updates["enabled"] = body.enabled
     if body.pinned is not None:
         updates["pinned"] = body.pinned
+    if body.pin_order is not None:
+        updates["pin_order"] = body.pin_order
     # Allow clearing fetch_since with empty string
     if body.fetch_since is not None:
         updates["fetch_since"] = body.fetch_since if body.fetch_since.strip() else None
@@ -315,11 +319,31 @@ async def update_source(source_id: str, body: SourceUpdate):
 
 @router.delete("/api/sources")
 async def remove_source(url: str = Query(...)):
-    """按 URL 删除信源。"""
+    """按 URL 删除信源（同时删除该信源下的所有文章）。"""
     deleted = await db.delete_source(url)
     if not deleted:
         raise HTTPException(status_code=404, detail="Source not found")
     return {"status": "deleted"}
+
+
+# ── 分类置顶管理 ──
+
+class PinnedCategoriesBody(BaseModel):
+    pinned_categories: List[str] = Field(default_factory=list, description="按顺序排列的置顶分类名称列表")
+
+
+@router.get("/api/sources/pinned-categories")
+async def get_pinned_categories():
+    """获取置顶分类列表（有序）。"""
+    s = await db.get_settings()
+    return {"pinned_categories": s.get("pinned_categories", [])}
+
+
+@router.put("/api/sources/pinned-categories")
+async def update_pinned_categories(body: PinnedCategoriesBody):
+    """更新置顶分类列表。"""
+    await db.set_setting("pinned_categories", body.pinned_categories)
+    return {"status": "ok", "pinned_categories": body.pinned_categories}
 
 
 # ──────────────────────────────────────────────────────────────
@@ -415,6 +439,78 @@ async def delete_filter_preset(preset_id: str):
     if not deleted:
         raise HTTPException(status_code=404, detail="Preset not found")
     return {"status": "deleted"}
+
+
+# ──────────────────────────────────────────────────────────────
+# LLM 配置管理端点 — 多配置单激活
+# ──────────────────────────────────────────────────────────────
+
+class LlmConfigCreate(BaseModel):
+    name: str
+    model: str = ""
+    api_key: str = ""
+    base_url: str = ""
+
+
+class LlmConfigUpdate(BaseModel):
+    name: Optional[str] = None
+    model: Optional[str] = None
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+
+
+@router.get("/api/llm-configs")
+async def list_llm_configs():
+    """获取所有已保存的 LLM 配置。"""
+    configs = await db.get_llm_configs()
+    return {"items": configs}
+
+
+@router.post("/api/llm-configs")
+async def create_llm_config(body: LlmConfigCreate):
+    """创建新的 LLM 配置。"""
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    config_id = await db.create_llm_config(
+        name=name, model=body.model.strip(),
+        api_key=body.api_key.strip(), base_url=body.base_url.strip(),
+    )
+    return {"status": "ok", "id": config_id}
+
+
+@router.patch("/api/llm-configs/{config_id}")
+async def update_llm_config(config_id: str, body: LlmConfigUpdate):
+    """更新 LLM 配置。"""
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if updates:
+        ok = await db.update_llm_config(config_id, updates)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Config not found")
+    return {"status": "ok"}
+
+
+@router.post("/api/llm-configs/{config_id}/activate")
+async def activate_llm_config(config_id: str):
+    """激活指定的 LLM 配置（单选，停用其他）。"""
+    await db.activate_llm_config(config_id)
+    return {"status": "ok", "active_id": config_id}
+
+
+@router.post("/api/llm-configs/deactivate")
+async def deactivate_llm_configs():
+    """停用所有 LLM 配置（使用环境变量默认值）。"""
+    await db.deactivate_all_llm_configs()
+    return {"status": "ok"}
+
+
+@router.delete("/api/llm-configs/{config_id}")
+async def delete_llm_config(config_id: str):
+    """删除指定的 LLM 配置。"""
+    ok = await db.delete_llm_config(config_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Config not found")
+    return {"status": "ok"}
 
 
 # ──────────────────────────────────────────────────────────────

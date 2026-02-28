@@ -19,6 +19,11 @@ import {
   Filter,
   HardDrive,
   AlertTriangle,
+  Key,
+  Eye,
+  EyeOff,
+  X,
+  Pencil,
 } from "lucide-react";
 import clsx from "clsx";
 import {
@@ -32,10 +37,17 @@ import {
   deleteFilterPreset,
   getCacheStats,
   clearCache,
+  getLlmConfigs,
+  createLlmConfig,
+  updateLlmConfig,
+  activateLlmConfig,
+  deactivateLlmConfigs,
+  deleteLlmConfig,
   type AppSettings,
   type FilterPreset,
   type CacheStats,
   type CacheSourceStat,
+  type LlmConfig,
 } from "@/lib/api";
 import { useTheme } from "./ThemeProvider";
 
@@ -130,6 +142,14 @@ export default function Settings() {
   const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(new Set());
   const [showCacheConfirm, setShowCacheConfirm] = useState<"all" | "selected" | null>(null);
 
+  // LLM 配置状态（多配置单激活）
+  const [llmConfigs, setLlmConfigs] = useState<LlmConfig[]>([]);
+  const [showLlmConfigModal, setShowLlmConfigModal] = useState(false);
+  const [editingLlmConfig, setEditingLlmConfig] = useState<LlmConfig | null>(null);
+  const [llmConfigForm, setLlmConfigForm] = useState({ name: "", model: "", api_key: "", base_url: "" });
+  const [llmConfigSaving, setLlmConfigSaving] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
+
   useEffect(() => {
     loadAll();
   }, []);
@@ -154,8 +174,18 @@ export default function Settings() {
     } finally {
       setLoading(false);
     }
-    // Load cache stats in parallel (non-blocking)
+    // Load cache stats and LLM configs in parallel (non-blocking)
     loadCacheStats();
+    loadLlmConfigs();
+  }
+
+  async function loadLlmConfigs() {
+    try {
+      const lc = await getLlmConfigs();
+      setLlmConfigs(lc.items);
+    } catch (err) {
+      console.error(err);
+    }
   }
 
   async function loadCacheStats() {
@@ -213,6 +243,102 @@ export default function Settings() {
     try {
       const updated = await updateSettings({ llm_enabled: enabled });
       setAppSettings(updated);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleLlmConfigSave() {
+    const name = llmConfigForm.name.trim();
+    if (!name) return;
+    setLlmConfigSaving(true);
+    try {
+      if (editingLlmConfig) {
+        // 编辑现有配置
+        await updateLlmConfig(editingLlmConfig.id, {
+          name,
+          model: llmConfigForm.model.trim(),
+          api_key: llmConfigForm.api_key.trim(),
+          base_url: llmConfigForm.base_url.trim(),
+        });
+        setLlmConfigs((prev) =>
+          prev.map((c) =>
+            c.id === editingLlmConfig.id
+              ? { ...c, name, model: llmConfigForm.model.trim(), api_key: llmConfigForm.api_key.trim(), base_url: llmConfigForm.base_url.trim() }
+              : c
+          )
+        );
+      } else {
+        // 创建新配置
+        const res = await createLlmConfig({
+          name,
+          model: llmConfigForm.model.trim(),
+          api_key: llmConfigForm.api_key.trim(),
+          base_url: llmConfigForm.base_url.trim(),
+        });
+        const newConfig: LlmConfig = {
+          id: res.id,
+          name,
+          model: llmConfigForm.model.trim(),
+          api_key: llmConfigForm.api_key.trim(),
+          base_url: llmConfigForm.base_url.trim(),
+          is_active: false,
+          created_at: new Date().toISOString(),
+        };
+        setLlmConfigs((prev) => [...prev, newConfig]);
+      }
+      setShowLlmConfigModal(false);
+      setEditingLlmConfig(null);
+      setLlmConfigForm({ name: "", model: "", api_key: "", base_url: "" });
+      setShowApiKey(false);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLlmConfigSaving(false);
+    }
+  }
+
+  function openLlmConfigModal(config?: LlmConfig) {
+    if (config) {
+      setEditingLlmConfig(config);
+      setLlmConfigForm({
+        name: config.name,
+        model: config.model,
+        api_key: config.api_key,
+        base_url: config.base_url,
+      });
+    } else {
+      setEditingLlmConfig(null);
+      setLlmConfigForm({ name: "", model: "", api_key: "", base_url: "" });
+    }
+    setShowApiKey(false);
+    setShowLlmConfigModal(true);
+  }
+
+  async function handleActivateLlmConfig(configId: string) {
+    try {
+      await activateLlmConfig(configId);
+      setLlmConfigs((prev) =>
+        prev.map((c) => ({ ...c, is_active: c.id === configId }))
+      );
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleDeactivateLlmConfigs() {
+    try {
+      await deactivateLlmConfigs();
+      setLlmConfigs((prev) => prev.map((c) => ({ ...c, is_active: false })));
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleDeleteLlmConfig(configId: string) {
+    try {
+      await deleteLlmConfig(configId);
+      setLlmConfigs((prev) => prev.filter((c) => c.id !== configId));
     } catch (err) {
       console.error(err);
     }
@@ -345,6 +471,94 @@ export default function Settings() {
               description={appSettings.llm_enabled ? "AI 分析流水线已开启" : "仅抓取原始标题，不消耗 API"}
             />
           )}
+        </SectionCard>
+
+        {/* ── LLM Config (multi-preset, single active) ── */}
+        <SectionCard icon={Key} title="大模型配置" subtitle="管理 LLM API 配置，每次仅激活一个">
+          {/* Active status banner */}
+          {llmConfigs.some((c) => c.is_active) ? (
+            <div className="flex items-center justify-between rounded-lg bg-dark-accent/10 border border-dark-accent/30 px-3 py-2">
+              <span className="text-xs text-dark-accent">
+                当前使用：<strong>{llmConfigs.find((c) => c.is_active)?.name}</strong>
+              </span>
+              <button
+                onClick={handleDeactivateLlmConfigs}
+                className="text-xs text-dark-muted hover:text-red-400 transition-colors"
+              >
+                取消激活
+              </button>
+            </div>
+          ) : (
+            <div className="rounded-lg bg-dark-surface border border-dark-border px-3 py-2 text-xs text-dark-muted">
+              暂无激活配置，将使用环境变量默认值
+            </div>
+          )}
+
+          {/* Config list */}
+          <div className="space-y-2">
+            {llmConfigs.length === 0 && (
+              <p className="text-xs text-dark-muted italic">暂无已保存的配置，点击下方「新建配置」创建</p>
+            )}
+            {llmConfigs.map((config) => (
+              <div key={config.id} className="rounded-xl border border-dark-border bg-dark-surface overflow-hidden">
+                <div className="flex items-center gap-3 px-3 py-2.5">
+                  {/* Radio button (single selection) */}
+                  <button
+                    onClick={() => handleActivateLlmConfig(config.id)}
+                    title={config.is_active ? "当前已激活" : "点击激活此配置"}
+                    className={clsx(
+                      "flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all",
+                      config.is_active
+                        ? "border-dark-accent"
+                        : "border-dark-muted hover:border-dark-accent"
+                    )}
+                  >
+                    {config.is_active && <div className="w-2.5 h-2.5 rounded-full bg-dark-accent" />}
+                  </button>
+
+                  <div className="flex-1 min-w-0">
+                    <span className={clsx("text-sm font-medium", config.is_active && "text-dark-accent")}>
+                      {config.name}
+                    </span>
+                    {config.model && (
+                      <span className="text-xs text-dark-muted ml-2">{config.model}</span>
+                    )}
+                  </div>
+
+                  {config.is_active && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-dark-accent/20 text-dark-accent">激活</span>
+                  )}
+
+                  {/* Edit */}
+                  <button
+                    onClick={() => openLlmConfigModal(config)}
+                    className="p-1 rounded hover:bg-dark-card text-dark-muted hover:text-dark-text transition-colors"
+                    title="编辑配置"
+                  >
+                    <Pencil size={14} />
+                  </button>
+
+                  {/* Delete */}
+                  <button
+                    onClick={() => handleDeleteLlmConfig(config.id)}
+                    className="p-1 rounded hover:bg-red-500/10 text-dark-muted hover:text-red-400 transition-colors"
+                    title="删除配置"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* New config button */}
+          <button
+            onClick={() => openLlmConfigModal()}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-dashed border-dark-border text-sm text-dark-muted hover:text-dark-text hover:border-dark-accent/50 transition-colors w-full justify-center"
+          >
+            <Plus size={14} />
+            新建配置
+          </button>
         </SectionCard>
 
         {/* ── Unified Filter Rules (presets + default prompt merged) ── */}
@@ -558,7 +772,7 @@ export default function Settings() {
               <div className="flex items-center justify-between rounded-lg bg-dark-surface border border-dark-border px-4 py-3">
                 <div className="space-y-1">
                   <div className="text-sm font-medium">
-                    数据库文件大小：<span className="text-dark-accent">{formatBytes(cacheStats.db_file_size_bytes)}</span>
+                    文章数据大小：<span className="text-dark-accent">{formatBytes(cacheStats.article_total_bytes)}</span>
                   </div>
                   <div className="text-xs text-dark-muted">
                     共 {cacheStats.total_articles} 篇文章缓存
@@ -667,6 +881,106 @@ export default function Settings() {
           )}
         </SectionCard>
       </div>
+
+      {/* ── LLM Config Modal ── */}
+      {showLlmConfigModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-dark-card border border-dark-border rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 space-y-5">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold">
+                {editingLlmConfig ? "编辑大模型配置" : "新建大模型配置"}
+              </h3>
+              <button
+                onClick={() => { setShowLlmConfigModal(false); setEditingLlmConfig(null); setShowApiKey(false); }}
+                className="p-1 rounded-lg hover:bg-dark-surface text-dark-muted hover:text-dark-text transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Form */}
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">配置名称</label>
+                <input
+                  autoFocus
+                  type="text"
+                  value={llmConfigForm.name}
+                  onChange={(e) => setLlmConfigForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="例: GPT-4o-mini、DeepSeek-V3..."
+                  className="w-full bg-dark-surface border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent transition-colors"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">模型名称</label>
+                <input
+                  type="text"
+                  value={llmConfigForm.model}
+                  onChange={(e) => setLlmConfigForm((f) => ({ ...f, model: e.target.value }))}
+                  placeholder="例: gpt-4o-mini、deepseek-chat..."
+                  className="w-full bg-dark-surface border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent transition-colors placeholder:text-dark-muted/60"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">API Key</label>
+                <div className="relative">
+                  <input
+                    type={showApiKey ? "text" : "password"}
+                    value={llmConfigForm.api_key}
+                    onChange={(e) => setLlmConfigForm((f) => ({ ...f, api_key: e.target.value }))}
+                    placeholder="sk-..."
+                    className="w-full bg-dark-surface border border-dark-border rounded-lg px-3 py-2 pr-10 text-sm focus:outline-none focus:border-dark-accent transition-colors placeholder:text-dark-muted/60 font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowApiKey((v) => !v)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-dark-muted hover:text-dark-text transition-colors"
+                  >
+                    {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">API Base URL</label>
+                <input
+                  type="text"
+                  value={llmConfigForm.base_url}
+                  onChange={(e) => setLlmConfigForm((f) => ({ ...f, base_url: e.target.value }))}
+                  placeholder="https://api.openai.com/v1"
+                  className="w-full bg-dark-surface border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent transition-colors placeholder:text-dark-muted/60 font-mono"
+                />
+                <p className="text-xs text-dark-muted">支持任意 OpenAI 兼容 API 地址，留空使用环境变量默认值</p>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={handleLlmConfigSave}
+                disabled={llmConfigSaving || !llmConfigForm.name.trim()}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-dark-accent text-black text-sm font-medium hover:bg-dark-accent/80 disabled:opacity-50 transition-colors"
+              >
+                {llmConfigSaving ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Save size={14} />
+                )}
+                {editingLlmConfig ? "保存修改" : "创建"}
+              </button>
+              <button
+                onClick={() => { setShowLlmConfigModal(false); setEditingLlmConfig(null); setShowApiKey(false); }}
+                className="px-4 py-2 rounded-lg border border-dark-border text-sm text-dark-muted hover:text-dark-text transition-colors"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

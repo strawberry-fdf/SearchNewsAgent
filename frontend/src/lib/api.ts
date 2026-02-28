@@ -64,11 +64,22 @@ export interface Source {
   category: string;
   fetch_since: string | null; // ISO date string, e.g. "2024-10-01"
   pinned: boolean;
+  pin_order: number;
 }
 
 export interface AppSettings {
   llm_enabled: boolean;
   llm_filter_prompt: string;
+}
+
+export interface LlmConfig {
+  id: string;
+  name: string;
+  model: string;
+  api_key: string;
+  base_url: string;
+  is_active: boolean;
+  created_at: string;
 }
 
 export interface KeywordRule {
@@ -231,6 +242,7 @@ export async function updateSource(
     fetch_interval_minutes?: number;
     fetch_since?: string | null;
     pinned?: boolean;
+    pin_order?: number;
   }
 ): Promise<{ status: string }> {
   return fetchJSON(`/api/sources/${sourceId}`, {
@@ -242,6 +254,21 @@ export async function updateSource(
 export async function deleteSource(url: string): Promise<void> {
   await fetchJSON(`/api/sources?url=${encodeURIComponent(url)}`, {
     method: "DELETE",
+  });
+}
+
+// ── 分类置顶管理 ──
+
+export async function getPinnedCategories(): Promise<{ pinned_categories: string[] }> {
+  return fetchJSON("/api/sources/pinned-categories");
+}
+
+export async function updatePinnedCategories(
+  pinnedCategories: string[]
+): Promise<{ status: string; pinned_categories: string[] }> {
+  return fetchJSON("/api/sources/pinned-categories", {
+    method: "PUT",
+    body: JSON.stringify({ pinned_categories: pinnedCategories }),
   });
 }
 
@@ -258,6 +285,48 @@ export async function updateSettings(
     method: "PUT",
     body: JSON.stringify(settings),
   });
+}
+
+// ── LLM 配置管理 ──
+
+export async function getLlmConfigs(): Promise<{ items: LlmConfig[] }> {
+  return fetchJSON("/api/llm-configs");
+}
+
+export async function createLlmConfig(data: {
+  name: string;
+  model: string;
+  api_key: string;
+  base_url: string;
+}): Promise<{ status: string; id: string }> {
+  return fetchJSON("/api/llm-configs", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateLlmConfig(
+  configId: string,
+  updates: { name?: string; model?: string; api_key?: string; base_url?: string }
+): Promise<{ status: string }> {
+  return fetchJSON(`/api/llm-configs/${configId}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function activateLlmConfig(
+  configId: string
+): Promise<{ status: string; active_id: string }> {
+  return fetchJSON(`/api/llm-configs/${configId}/activate`, { method: "POST" });
+}
+
+export async function deactivateLlmConfigs(): Promise<{ status: string }> {
+  return fetchJSON("/api/llm-configs/deactivate", { method: "POST" });
+}
+
+export async function deleteLlmConfig(configId: string): Promise<void> {
+  await fetchJSON(`/api/llm-configs/${configId}`, { method: "DELETE" });
 }
 
 // ── 兴趣标签 ──
@@ -387,6 +456,8 @@ export interface CacheSourceStat {
 export interface CacheStats {
   db_file_size_bytes: number;
   total_articles: number;
+  article_total_bytes: number;
+  other_bytes: number;
   sources: CacheSourceStat[];
 }
 

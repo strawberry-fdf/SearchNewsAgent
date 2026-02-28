@@ -10,6 +10,7 @@
   - keyword_rules:  关键词过滤规则
   - pipeline_runs:  Pipeline 执行历史
   - filter_presets: 筛选预设方案
+  - llm_configs:   LLM 配置管理（多配置单激活）
 """
 
 import aiosqlite
@@ -141,6 +142,17 @@ async def _init_schema(db: aiosqlite.Connection):
         created_at TEXT
     );
     """)
+    await db.execute("""
+    CREATE TABLE IF NOT EXISTS llm_configs (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        model TEXT DEFAULT '',
+        api_key TEXT DEFAULT '',
+        base_url TEXT DEFAULT '',
+        is_active INTEGER DEFAULT 0,
+        created_at TEXT
+    );
+    """)
 
     # ── 迁移脚本: 向已有表加新字段 (失败即忽略，表示字段已存在) ──
     migration_stmts = [
@@ -149,6 +161,7 @@ async def _init_schema(db: aiosqlite.Connection):
         "ALTER TABLE articles ADD COLUMN user_tags TEXT DEFAULT '[]'",
         "ALTER TABLE sources ADD COLUMN fetch_since TEXT DEFAULT NULL",
         "ALTER TABLE sources ADD COLUMN pinned INTEGER DEFAULT 0",
+        "ALTER TABLE sources ADD COLUMN pin_order INTEGER DEFAULT 0",
     ]
     for stmt in migration_stmts:
         try:
@@ -260,9 +273,19 @@ async def update_source_last_fetched(url: str):
 
 
 async def delete_source(url: str) -> bool:
-    db = await get_db()
-    cursor = await db.execute("DELETE FROM sources WHERE url = ?", (url,))
-    await db.commit()
+    """删除信源，同时级联删除该信源下的所有文章。"""
+    conn = await get_db()
+    # 先查出信源名称，用于删除关联文章
+    cursor = await conn.execute("SELECT name FROM sources WHERE url = ?", (url,))
+    row = await cursor.fetchone()
+    if not row:
+        return False
+    source_name = row[0]
+    # 删除该信源下的所有文章
+    await conn.execute("DELETE FROM articles WHERE source_name = ?", (source_name,))
+    # 删除信源本身
+    cursor = await conn.execute("DELETE FROM sources WHERE url = ?", (url,))
+    await conn.commit()
     return cursor.rowcount > 0
 
 
@@ -505,7 +528,7 @@ async def toggle_star(url_hash: str) -> bool:
 
 async def update_source(source_id: str, updates: Dict[str, Any]) -> bool:
     db = await get_db()
-    allowed = {"enabled", "category", "name", "tags", "fetch_interval_minutes", "fetch_since", "pinned"}
+    allowed = {"enabled", "category", "name", "tags", "fetch_interval_minutes", "fetch_since", "pinned", "pin_order"}
     set_clauses = []
     params = []
     for k, v in updates.items():
@@ -536,6 +559,7 @@ async def update_source(source_id: str, updates: Dict[str, Any]) -> bool:
 _SETTINGS_DEFAULTS: Dict[str, Any] = {
     "llm_enabled": True,
     "llm_filter_prompt": "",
+    "pinned_categories": [],  # [{"name": "分类名", "order": int}]
 }
 
 
@@ -814,11 +838,103 @@ async def delete_filter_preset(preset_id: str) -> bool:
 
 
 # ──────────────────────────────────────────────────────────────
+# LLM 配置管理 (LLM Configs) — 多配置单激活
+# ──────────────────────────────────────────────────────────────
+
+async def get_llm_configs() -> List[Dict[str, Any]]:
+    """获取所有已保存的 LLM 配置。"""
+    db = await get_db()
+    cursor = await db.execute("SELECT * FROM llm_configs ORDER BY created_at")
+    rows = await cursor.fetchall()
+    result = []
+    for row in rows:
+        d = dict(row)
+        d["is_active"] = bool(d.get("is_active", 0))
+        result.append(d)
+    return result
+
+
+async def create_llm_config(name: str, model: str = "", api_key: str = "", base_url: str = "") -> str:
+    """创建新的 LLM 配置，返回配置 ID。"""
+    db = await get_db()
+    config_id = str(uuid.uuid4())
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.execute(
+        "INSERT INTO llm_configs (id, name, model, api_key, base_url, is_active, created_at) VALUES (?, ?, ?, ?, ?, 0, ?)",
+        (config_id, name, model, api_key, base_url, now_iso),
+    )
+    await db.commit()
+    return config_id
+
+
+async def update_llm_config(config_id: str, updates: Dict[str, Any]) -> bool:
+    """更新指定 LLM 配置的字段。"""
+    db = await get_db()
+    allowed = {"name", "model", "api_key", "base_url"}
+    set_clauses = []
+    params = []
+    for k, v in updates.items():
+        if k not in allowed:
+            continue
+        set_clauses.append(f"{k} = ?")
+        params.append(v)
+    if not set_clauses:
+        return False
+    params.append(config_id)
+    cursor = await db.execute(
+        f"UPDATE llm_configs SET {', '.join(set_clauses)} WHERE id = ?",
+        tuple(params),
+    )
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+async def activate_llm_config(config_id: str) -> None:
+    """激活指定 LLM 配置（同时停用其他所有配置，单选模式）。"""
+    db = await get_db()
+    await db.execute("UPDATE llm_configs SET is_active = 0")
+    await db.execute("UPDATE llm_configs SET is_active = 1 WHERE id = ?", (config_id,))
+    await db.commit()
+
+
+async def deactivate_all_llm_configs() -> None:
+    """停用所有 LLM 配置（回退到使用环境变量默认值）。"""
+    db = await get_db()
+    await db.execute("UPDATE llm_configs SET is_active = 0")
+    await db.commit()
+
+
+async def get_active_llm_config() -> Optional[Dict[str, Any]]:
+    """获取当前激活的 LLM 配置，若无激活配置则返回 None。"""
+    db = await get_db()
+    cursor = await db.execute("SELECT * FROM llm_configs WHERE is_active = 1 LIMIT 1")
+    row = await cursor.fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    d["is_active"] = True
+    return d
+
+
+async def delete_llm_config(config_id: str) -> bool:
+    """删除指定的 LLM 配置。"""
+    db = await get_db()
+    cursor = await db.execute("DELETE FROM llm_configs WHERE id = ?", (config_id,))
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+# ──────────────────────────────────────────────────────────────
 # 文章缓存管理 (Cache Management)
 # ──────────────────────────────────────────────────────────────
 
 async def get_cache_stats() -> Dict[str, Any]:
     """获取数据库文件大小以及各信源的文章缓存占用估算。
+
+    文章估算字节数包含所有主要文本字段:
+      raw_html, clean_markdown, title, raw_title, summary, tags, user_tags, analysis_json
+
+    返回结果中额外包含 other_bytes 表示非文章数据占用（表结构、索引、空闲页等）。
 
     Returns
     -------
@@ -826,6 +942,8 @@ async def get_cache_stats() -> Dict[str, Any]:
         {
             "db_file_size_bytes": int,
             "total_articles": int,
+            "article_total_bytes": int,
+            "other_bytes": int,
             "sources": [
                 {"source_name": str, "source_id": str | None, "article_count": int, "estimated_bytes": int},
                 ...
@@ -835,19 +953,33 @@ async def get_cache_stats() -> Dict[str, Any]:
     db_file = Path(DB_PATH)
     db_file_size = db_file.stat().st_size if db_file.exists() else 0
 
+    # 检查是否存在 WAL 文件，加上其大小
+    wal_file = Path(str(DB_PATH) + "-wal")
+    if wal_file.exists():
+        db_file_size += wal_file.stat().st_size
+
     conn = await get_db()
     # 总文章数
     cursor = await conn.execute("SELECT COUNT(*) FROM articles")
     row = await cursor.fetchone()
     total_articles: int = row[0] if row else 0
 
-    # 每个信源的文章数量 + 估算空间（raw_html + clean_markdown 的总长度）
+    # 每个信源的文章数量 + 所有主要文本字段的总长度估算
     cursor = await conn.execute("""
         SELECT
             source_name,
             source_id,
             COUNT(*) AS cnt,
-            COALESCE(SUM(LENGTH(raw_html)), 0) + COALESCE(SUM(LENGTH(clean_markdown)), 0) AS content_bytes
+            COALESCE(SUM(LENGTH(raw_html)), 0)
+            + COALESCE(SUM(LENGTH(clean_markdown)), 0)
+            + COALESCE(SUM(LENGTH(title)), 0)
+            + COALESCE(SUM(LENGTH(raw_title)), 0)
+            + COALESCE(SUM(LENGTH(summary)), 0)
+            + COALESCE(SUM(LENGTH(tags)), 0)
+            + COALESCE(SUM(LENGTH(user_tags)), 0)
+            + COALESCE(SUM(LENGTH(analysis_json)), 0)
+            + COALESCE(SUM(LENGTH(url)), 0)
+            AS content_bytes
         FROM articles
         GROUP BY source_name
         ORDER BY content_bytes DESC
@@ -863,9 +995,14 @@ async def get_cache_stats() -> Dict[str, Any]:
         for r in rows
     ]
 
+    article_total_bytes = sum(s["estimated_bytes"] for s in sources)
+    other_bytes = max(0, db_file_size - article_total_bytes)
+
     return {
         "db_file_size_bytes": db_file_size,
         "total_articles": total_articles,
+        "article_total_bytes": article_total_bytes,
+        "other_bytes": other_bytes,
         "sources": sources,
     }
 

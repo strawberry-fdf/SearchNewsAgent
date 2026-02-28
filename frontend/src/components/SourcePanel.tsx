@@ -23,6 +23,8 @@ import {
   getSourceArticleCounts,
   updateSource,
   deleteSource,
+  getPinnedCategories,
+  updatePinnedCategories,
   type Source,
   type SourceCount,
 } from "@/lib/api";
@@ -35,7 +37,7 @@ interface SourcePanelProps {
 
 const UNCATEGORIZED = "未分类";
 
-/** 按 category 分组，置顶信源排在前面 */
+/** 按 category 分组，置顶信源按 pin_order 排在前面，再按名称排序 */
 function groupByCategory(sources: Source[]): Record<string, Source[]> {
   const groups: Record<string, Source[]> = {};
   for (const s of sources) {
@@ -43,11 +45,12 @@ function groupByCategory(sources: Source[]): Record<string, Source[]> {
     if (!groups[cat]) groups[cat] = [];
     groups[cat].push(s);
   }
-  // 每个分类内按 pinned desc, name asc 排序
+  // 每个分类内：置顶信源按 pin_order 升序排前面，非置顶按 name 排序
   for (const cat of Object.keys(groups)) {
     groups[cat].sort((a, b) => {
       if (a.pinned && !b.pinned) return -1;
       if (!a.pinned && b.pinned) return 1;
+      if (a.pinned && b.pinned) return (a.pin_order ?? 0) - (b.pin_order ?? 0);
       return a.name.localeCompare(b.name);
     });
   }
@@ -104,16 +107,21 @@ export default function SourcePanel({
   const [editingSourceId, setEditingSourceId] = useState<string | null>(null);
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
 
+  // 分类置顶列表（有序）
+  const [pinnedCategories, setPinnedCategories] = useState<string[]>([]);
+
   // 加载信源列表和计数：精选模式按 selected 过滤，其它模式取全部
   useEffect(() => {
     const status = mode === "feed" ? "selected" : undefined;
     Promise.all([
       getSources(),
       getSourceArticleCounts(status),
-    ]).then(([srcRes, countRes]) => {
+      getPinnedCategories(),
+    ]).then(([srcRes, countRes, pinCatRes]) => {
       setSources(srcRes.items);
       setCounts(countRes.items);
       setTotalCount(countRes.total);
+      setPinnedCategories(pinCatRes.pinned_categories || []);
     }).catch(console.error);
   }, [mode]);
 
@@ -127,21 +135,26 @@ export default function SourcePanel({
 
   const grouped = useMemo(() => groupByCategory(sources), [sources]);
 
-  // 分类排序：置顶分类优先 → 文章数降序 → 未分类最后
+  // 分类排序：置顶分类按置顶顺序优先 → 非置顶按文章数降序 → 未分类最后
   const sortedCategories = useMemo(() => {
     return Object.keys(grouped).sort((a, b) => {
-      if (a === UNCATEGORIZED) return 1;
-      if (b === UNCATEGORIZED) return -1;
-      // 分类中有置顶信源的排前面
-      const hasPinA = grouped[a].some((s) => s.pinned);
-      const hasPinB = grouped[b].some((s) => s.pinned);
-      if (hasPinA && !hasPinB) return -1;
-      if (!hasPinA && hasPinB) return 1;
+      if (a === UNCATEGORIZED && b !== UNCATEGORIZED) return 1;
+      if (b === UNCATEGORIZED && a !== UNCATEGORIZED) return -1;
+      const pinIdxA = pinnedCategories.indexOf(a);
+      const pinIdxB = pinnedCategories.indexOf(b);
+      const isPinnedA = pinIdxA !== -1;
+      const isPinnedB = pinIdxB !== -1;
+      // 置顶分类优先
+      if (isPinnedA && !isPinnedB) return -1;
+      if (!isPinnedA && isPinnedB) return 1;
+      // 都置顶时按置顶顺序
+      if (isPinnedA && isPinnedB) return pinIdxA - pinIdxB;
+      // 都未置顶时按文章数降序
       const countA = grouped[a].reduce((sum, s) => sum + (countMap.get(s.name) || 0), 0);
       const countB = grouped[b].reduce((sum, s) => sum + (countMap.get(s.name) || 0), 0);
       return countB - countA;
     });
-  }, [grouped, countMap]);
+  }, [grouped, countMap, pinnedCategories]);
 
   // 搜索过滤
   const filteredCategories = useMemo(() => {
@@ -201,8 +214,35 @@ export default function SourcePanel({
     if (!src) return;
     const newVal = !src.pinned;
     try {
-      await updateSource(id, { pinned: newVal });
-      setSources((prev) => prev.map((s) => s.id === id ? { ...s, pinned: newVal } : s));
+      // 置顶时设置 pin_order 为当前分类内最大 pin_order + 1
+      let pinOrder = 0;
+      if (newVal) {
+        const cat = src.category?.trim() || UNCATEGORIZED;
+        const siblings = sources.filter(
+          (s) => (s.category?.trim() || UNCATEGORIZED) === cat && s.pinned
+        );
+        pinOrder = siblings.length > 0
+          ? Math.max(...siblings.map((s) => s.pin_order ?? 0)) + 1
+          : 1;
+      }
+      await updateSource(id, { pinned: newVal, pin_order: newVal ? pinOrder : 0 });
+      setSources((prev) =>
+        prev.map((s) => s.id === id ? { ...s, pinned: newVal, pin_order: newVal ? pinOrder : 0 } : s)
+      );
+    } catch (err) { console.error(err); }
+  };
+
+  const handleToggleCategoryPin = async (cat: string) => {
+    const isPinned = pinnedCategories.includes(cat);
+    let newList: string[];
+    if (isPinned) {
+      newList = pinnedCategories.filter((c) => c !== cat);
+    } else {
+      newList = [...pinnedCategories, cat];
+    }
+    try {
+      await updatePinnedCategories(newList);
+      setPinnedCategories(newList);
     } catch (err) { console.error(err); }
   };
 
@@ -329,10 +369,29 @@ export default function SourcePanel({
                       {cat}
                     </span>
                   )}
+                  {/* 正常模式下显示置顶标记 */}
+                  {!editMode && pinnedCategories.includes(cat) && (
+                    <Pin size={10} className="text-dark-accent/60 flex-shrink-0" />
+                  )}
                   <span className="ml-auto text-[10px] bg-dark-surface px-1.5 py-0.5 rounded-full text-dark-muted flex-shrink-0">
                     {catCount}
                   </span>
                 </button>
+                {/* 编辑模式：分类置顶按钮 */}
+                {editMode && cat !== UNCATEGORIZED && (
+                  <button
+                    onClick={() => handleToggleCategoryPin(cat)}
+                    title={pinnedCategories.includes(cat) ? "取消置顶分类" : "置顶分类"}
+                    className={clsx(
+                      "p-1 rounded transition-colors flex-shrink-0",
+                      pinnedCategories.includes(cat)
+                        ? "text-dark-accent"
+                        : "text-dark-muted hover:text-dark-accent"
+                    )}
+                  >
+                    <Pin size={12} />
+                  </button>
+                )}
               </div>
 
               {/* 信源列表 */}
