@@ -12,6 +12,9 @@
 - 前端测试全覆盖: 223 个测试用例全部通过（13 个测试文件），覆盖 api/ScoreBadge/ThemeProvider/Sidebar/ArticleCard/ArticleFeed/SourcePanel/SourceManager/StatsPanel/Settings/UpdateToast/Home(page) + 集成测试；测试框架 Vitest 4.0.18 + @testing-library/react + jest-dom + user-event + jsdom
 - 工程化规范体系: Husky pre-commit hook（tsc类型检查+前端223测试+后端283测试）+ commit-msg hook（commitlint Conventional Commits 规范）；新增 5 个 Node.js 脚本: dev.mjs（开发启动）、commit.mjs（交互式规范提交）、release.mjs（版本发布+CHANGELOG+Tag）、check.mjs（手动质量检查）、build.mjs（统一构建流水线：质量检查→前端构建→后端打包→Electron打包）；语义化版本控制 major/minor/patch
 - README 重写 + CONTRIBUTING.md: README 全面更新（修正技术栈/架构图/项目结构/快速开始/脚本命令速查表/桌面应用说明/去除过时 MongoDB/Docker 引用）；新增 CONTRIBUTING.md 开源贡献指南（环境搭建/提交规范/测试要求/代码规范/PR 流程/版本发布/FAQ）
+- 英文 README + 截图: 新增 README_EN.md 中英切换；Playwright 截取暗色主题截图嵌入两份 README
+- 数据库路径修复: SQLITE_DB_PATH 默认改为 backend/data/agent_news.db，db.py 自动创建目录；.gitignore 忽略 backend/data/
+- PR #1 已更新: dev → main，包含自动更新/工程化工具链/测试套件/文档重构/DB路径修复
 
 ---
 【2026-02】Electron 桌面打包方案：
@@ -28,7 +31,7 @@
 - 设置页新增"关于与更新"卡片: Settings.tsx 添加 AboutAndUpdate 组件，显示版本号/平台信息，提供手动"检查更新"按钮（调用 electronAPI IPC）；已清理 main.js 中的模拟弹窗测试代码
 
 ## [In Progress]
-
+- 无
 
 ## [Next Steps]
 1. 创建首个 GitHub Release (tag v1.0.0) 并手动上传打包产物，验证更新检查流程
