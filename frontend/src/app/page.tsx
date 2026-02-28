@@ -12,6 +12,7 @@ import SourcePanel from "@/components/SourcePanel";
 import StatsPanel from "@/components/StatsPanel";
 import SourceManager from "@/components/SourceManager";
 import Settings from "@/components/Settings";
+import UpdateToast from "@/components/UpdateToast";
 import { getStats, type Stats } from "@/lib/api";
 
 /** 需要展示信源面板的 Tab */
@@ -39,6 +40,8 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen">
+      {/* 全局更新提示 Toast（左下角） */}
+      <UpdateToast />
       <Sidebar
         activeTab={activeTab}
         onTabChange={handleTabChange}

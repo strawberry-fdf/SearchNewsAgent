@@ -14,15 +14,19 @@
     "----------- 后端构建 (PyInstaller) -----------": "",
     "build:backend:win": "powershell -ExecutionPolicy Bypass -File scripts/build-backend.ps1",
     "build:backend:linux": "bash scripts/build-backend.sh",
+    "build:backend:mac": "bash scripts/build-backend-mac.sh",
     "----------- Electron 打包 -----------": "",
     "build:win": "npm run build:frontend && npm run build:backend:win && electron-builder --win",
     "build:linux": "npm run build:frontend && npm run build:backend:linux && electron-builder --linux",
-    "build:all": "npm run build:frontend && electron-builder --win --linux",
+    "build:mac": "npm run build:frontend && npm run build:backend:mac && electron-builder --mac",
+    "build:all": "npm run build:frontend && electron-builder --win --linux --mac",
     "----------- 工具 -----------": "",
     "clean": "rimraf dist build frontend/out frontend/.next",
     "postinstall": "cd frontend && npm install"
   },
-  "dependencies": {},
+  "dependencies": {
+    "electron-updater": "^6.3.0"
+  },
   "devDependencies": {
     "electron": "^33.0.0",
     "electron-builder": "^25.1.0",
@@ -30,6 +34,9 @@
     "cross-env": "^7.0.3",
     "wait-on": "^8.0.0",
     "rimraf": "^6.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["electron"]
   },
   "build": {
     "extends": "electron-builder.yml"

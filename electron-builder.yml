@@ -16,7 +16,6 @@ directories:
 files:
   - "electron/**/*"
   - "package.json"
-  - "!node_modules"
   - "!frontend"
   - "!backend"
   - "!scripts"
@@ -48,6 +47,32 @@ extraResources:
 asar: true
 asarUnpack:
   - "electron/preload.js"
+
+# ── macOS 配置 ─────────────────────────────────────────────────
+# 注意: 未签名的 macOS 应用无法使用 autoUpdater 静默更新
+# 应用内将检测新版本并引导用户手动下载安装
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+    - target: zip
+      arch:
+        - arm64
+  icon: "build/icon.icns"
+  artifactName: "${productName}-${version}-mac-${arch}.${ext}"
+  category: "public.app-category.news"
+  darkModeSupport: true
+
+dmg:
+  artifactName: "${productName}-${version}-mac.dmg"
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
 
 # ── Windows 配置 ──────────────────────────────────────────────
 win:
@@ -110,5 +135,11 @@ deb:
     - "libatspi2.0-0"
     - "libuuid1"
 
-# ── 发布配置（默认不上传，仅本地打包） ─────────────────────────
-publish: null
+# ── 发布配置（GitHub Releases） ───────────────────────────────
+# 通过 git tag (v*) 触发 CI 构建并上传到 GitHub Releases
+# 私有仓库需设置 GH_TOKEN 环境变量
+publish:
+  provider: github
+  owner: strawberry-fdf
+  repo: SearchNewsAgent
+  releaseType: release

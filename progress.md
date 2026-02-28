@@ -16,12 +16,17 @@
 - 生产模式架构: Electron 启动 → PyInstaller 后端 (API + 静态文件同源 localhost:8000) → BrowserWindow 加载
 - 用户数据 (.env + SQLite DB) 存储在系统 userData 目录，首次启动自动初始化
 
+- 实现用户端自动更新检查: 所有平台通过 GitHub Releases API 检查新版本，弹窗引导下载；菜单栏"检查更新"即时反馈；启动后延迟 5 秒自动检查；electron-updater 代码保留备用（待 CI/CD 接入后 Win/Linux 可切换为静默更新）
+- 包管理器切换为 pnpm: 删除 node_modules/package-lock.json，新增 .npmrc（electron 镜像加速）、pnpm 配置；electron v33.4.11 已验证
+- 设置页新增"关于与更新"卡片: Settings.tsx 添加 AboutAndUpdate 组件，显示版本号/平台信息，提供手动"检查更新"按钮（调用 electronAPI IPC）；已清理 main.js 中的模拟弹窗测试代码
+
 ## [In Progress]
 
 
 ## [Next Steps]
-1. 在 Linux 运行 `npm run build:linux` 完整打包测试
-2. 实际安装并运行 Windows 打包产物，验证端到端功能正常
+1. 创建首个 GitHub Release (tag v1.0.0) 并手动上传打包产物，验证更新检查流程
+2. 在 Linux 运行 `pnpm run build:linux` 完整打包测试
+3. 接入 CI/CD (GitHub Actions) 后，Win/Linux 切换为 electron-updater 静默更新
 
 ## [Key Decisions / Context]
 - SourcePanel 展示全部信源（不再过滤 enabled），禁用信源以半透明+灰色圆点区分，启用信源显示绿色圆点
@@ -39,3 +44,4 @@
 - **Electron 打包**: 生产模式下后端通过 STATIC_DIR 挂载前端静态文件，实现 API + 前端同源 (localhost:8000)，无需额外 CORS 配置
 - **PyInstaller**: 使用 --onedir 模式打包后端，hidden-import 覆盖全部 backend.* 子模块 + 关键三方库
 - **用户配置**: .env 存放于系统 userData 目录，首次启动从 default.env 模板复制；菜单栏提供"打开配置目录"快捷入口
+- **自动更新策略**: 暂不使用 CI/CD，所有平台统一通过 GitHub API 查询最新 Release tag 对比版本号；手动检查无论结果均显示反馈弹窗，启动自动检查仅新版本才弹窗；electron-updater 代码保留，待 CI/CD 就绪后 Win/Linux 可启用静默下载安装

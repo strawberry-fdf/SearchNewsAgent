@@ -24,6 +24,8 @@ import {
   EyeOff,
   X,
   Pencil,
+  Info,
+  RefreshCw,
 } from "lucide-react";
 import clsx from "clsx";
 import {
@@ -91,6 +93,122 @@ function Toggle({
 }
 
 // ── Section card ──
+
+// ── 关于与更新组件 ──
+
+/** 声明 window.electronAPI 类型 */
+declare global {
+  interface Window {
+    electronAPI?: {
+      isElectron: boolean;
+      platform: string;
+      version: string;
+      checkForUpdates: () => Promise<{ status: string; version?: string; message?: string }>;
+      openExternal: (url: string) => void;
+      onUpdateCheckResult: (cb: (data: { type: string; version?: string; currentVersion?: string; downloadUrl?: string; message?: string; manual?: boolean }) => void) => void;
+      onUpdateProgress: (cb: (data: { percent: number }) => void) => void;
+      onUpdateDownloading: (cb: (data: { version: string }) => void) => void;
+    };
+  }
+}
+
+function AboutAndUpdate() {
+  const [checking, setChecking] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+
+  const isElectron = typeof window !== "undefined" && !!window.electronAPI?.isElectron;
+  const appVersion = (typeof window !== "undefined" && window.electronAPI?.version) || "dev";
+  const platform = (typeof window !== "undefined" && window.electronAPI?.platform) || "web";
+
+  const platformLabel: Record<string, string> = {
+    win32: "Windows",
+    darwin: "macOS",
+    linux: "Linux",
+    web: "Web",
+  };
+
+  // 监听主进程返回的检查结果，更新按钮状态
+  useEffect(() => {
+    const api = typeof window !== "undefined" ? window.electronAPI : null;
+    if (!api?.isElectron) return;
+    api.onUpdateCheckResult((data) => {
+      if (data.manual) {
+        setChecking(false);
+      }
+    });
+  }, []);
+
+  const handleCheckUpdate = async () => {
+    if (!isElectron || !window.electronAPI) {
+      setResult("仅桌面端支持自动更新检查");
+      return;
+    }
+    setChecking(true);
+    setResult(null);
+    try {
+      const res = await window.electronAPI.checkForUpdates();
+      if (res.status === "dev") {
+        setResult("开发模式下不支持更新检查");
+        setChecking(false);
+      }
+      // 检查结果由 IPC 事件触发左下角 Toast 展示
+    } catch {
+      setResult("检查更新失败，请稍后重试");
+      setChecking(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">当前版本</span>
+            <span className="text-xs bg-dark-surface border border-dark-border rounded px-2 py-0.5 font-mono">
+              v{appVersion}
+            </span>
+          </div>
+          <p className="text-xs text-dark-muted">
+            平台: {platformLabel[platform] || platform}
+          </p>
+        </div>
+
+        <button
+          onClick={handleCheckUpdate}
+          disabled={checking}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-dark-accent text-black text-sm font-medium hover:bg-dark-accent/80 disabled:opacity-50 transition-colors"
+        >
+          {checking ? (
+            <Loader2 size={14} className="animate-spin" />
+          ) : (
+            <RefreshCw size={14} />
+          )}
+          检查更新
+        </button>
+      </div>
+
+      {result && (
+        <p className="text-xs text-dark-muted bg-dark-surface rounded-lg px-3 py-2">
+          {result}
+        </p>
+      )}
+
+      <div className="pt-2 border-t border-dark-border">
+        <p className="text-xs text-dark-muted">
+          AgentNews 是一款 AI 智能资讯精选系统，帮助你从噪声中发现真正有价值的信息。
+        </p>
+        <a
+          href="https://github.com/strawberry-fdf/SearchNewsAgent"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-xs text-dark-accent hover:underline mt-1"
+        >
+          GitHub 仓库 →
+        </a>
+      </div>
+    </div>
+  );
+}
 
 function SectionCard({
   icon: Icon,
@@ -879,6 +997,11 @@ export default function Settings() {
           ) : (
             <p className="text-xs text-dark-muted">无法加载缓存信息</p>
           )}
+        </SectionCard>
+
+        {/* ── 关于与更新 ── */}
+        <SectionCard icon={Info} title="关于与更新" subtitle="查看版本信息和检查更新">
+          <AboutAndUpdate />
         </SectionCard>
       </div>
 

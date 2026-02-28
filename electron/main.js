@@ -10,11 +10,13 @@
  * 开发模式: Electron → 连接 localhost:3000 (Next.js dev) + localhost:8000 (FastAPI dev)
  */
 
-const { app, BrowserWindow, Menu, dialog, shell } = require("electron");
+const { app, BrowserWindow, Menu, dialog, shell, ipcMain, net } = require("electron");
 const path = require("path");
 const { spawn } = require("child_process");
 const http = require("http");
+const https = require("https");
 const fs = require("fs");
+const { autoUpdater } = require("electron-updater");
 
 // ─── 常量 ────────────────────────────────────────────────────
 const isDev = !app.isPackaged;
@@ -266,6 +268,19 @@ function buildAppMenu() {
             );
           },
         },
+        {
+          label: "检查更新...",
+          click: () => {
+            if (isDev) {
+              dialog.showMessageBox(mainWindow, {
+                title: "检查更新",
+                message: "开发模式下不支持自动更新",
+              });
+              return;
+            }
+            checkGitHubRelease(true);
+          },
+        },
         { type: "separator" },
         {
           label: "关于",
@@ -305,6 +320,8 @@ app.whenReady().then(async () => {
       await waitForBackend();
       log("后端已就绪，加载主界面");
       win.loadURL(BACKEND_URL);
+      // 后端就绪后启动自动更新检查
+      setupAutoUpdater();
     } catch (err) {
       log(`后端启动失败: ${err.message}`);
       dialog.showErrorBox(
@@ -345,3 +362,289 @@ if (!gotTheLock) {
     }
   });
 }
+
+// ─── 自动更新 ────────────────────────────────────────────────
+// Windows/Linux: electron-updater 静默下载并提示安装
+// macOS（未签名）: 对比 GitHub Release tag，弹窗引导手动下载
+
+// ─── 更新检查配置 ────────────────────────────────────────────
+const UPDATE_CHECK_DELAY = 5_000;         // 启动后首次检查延迟 (5 秒)
+const UPDATE_CHECK_INTERVAL = 4 * 3600_000; // 定期检查间隔 (4 小时)
+const UPDATE_REQUEST_TIMEOUT = 15_000;    // 单次请求超时 (15 秒)
+const UPDATE_MAX_RETRIES = 2;             // 最大重试次数
+const UPDATE_RETRY_DELAY = 5_000;         // 重试间隔 (5 秒)
+const GITHUB_API_URL = "https://api.github.com/repos/strawberry-fdf/SearchNewsAgent/releases/latest";
+
+/**
+ * 初始化自动更新（仅生产模式）。
+ * 在主窗口加载完成后调用。
+ *
+ * 当前策略: 所有平台统一通过 GitHub Releases API 检查最新版本，
+ * 通过 IPC 通知前端用左下角 Toast 展示结果。
+ *
+ * 网络健壮性:
+ * - 使用 Electron net 模块（走 Chromium 网络栈，自动遵循系统代理）
+ * - 失败自动重试（最多 2 次，间隔 5 秒）
+ * - 启动后 5 秒首次检查，之后每 4 小时定期检查
+ * - 自动检查失败静默跳过，手动检查失败显示提示
+ */
+function setupAutoUpdater() {
+  if (isDev) return;
+
+  // 延迟首次检查，避免影响启动速度
+  setTimeout(() => checkGitHubRelease(false), UPDATE_CHECK_DELAY);
+
+  // 定期检查（每 4 小时）
+  setInterval(() => checkGitHubRelease(false), UPDATE_CHECK_INTERVAL);
+
+  // TODO: 接入 CI/CD 后，Windows/Linux 可启用 electron-updater:
+  // if (process.platform !== "darwin") {
+  //   setupElectronUpdater();
+  // }
+}
+
+/**
+ * 使用 electron-updater 实现 Windows/Linux 自动更新。
+ */
+function setupElectronUpdater() {
+  // 不自动下载，先通知用户
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on("checking-for-update", () => {
+    log("正在检查更新...");
+  });
+
+  autoUpdater.on("update-available", (info) => {
+    log(`发现新版本: v${info.version}`);
+    dialog
+      .showMessageBox(mainWindow, {
+        type: "info",
+        title: "发现新版本",
+        message: `新版本 v${info.version} 已发布`,
+        detail: `当前版本: v${app.getVersion()}\n\n是否立即下载更新？`,
+        buttons: ["立即下载", "稍后提醒"],
+        defaultId: 0,
+        cancelId: 1,
+      })
+      .then(({ response }) => {
+        if (response === 0) {
+          autoUpdater.downloadUpdate();
+          // 通知渲染进程开始下载
+          if (mainWindow) {
+            mainWindow.webContents.send("update-downloading", {
+              version: info.version,
+            });
+          }
+        }
+      });
+  });
+
+  autoUpdater.on("update-not-available", () => {
+    log("当前已是最新版本");
+  });
+
+  autoUpdater.on("download-progress", (progress) => {
+    log(`下载进度: ${progress.percent.toFixed(1)}%`);
+    if (mainWindow) {
+      mainWindow.webContents.send("update-progress", {
+        percent: progress.percent,
+        transferred: progress.transferred,
+        total: progress.total,
+      });
+    }
+  });
+
+  autoUpdater.on("update-downloaded", (info) => {
+    log(`更新已下载: v${info.version}，准备安装`);
+    dialog
+      .showMessageBox(mainWindow, {
+        type: "info",
+        title: "更新就绪",
+        message: "更新已下载完成",
+        detail: `新版本 v${info.version} 已准备就绪，重启应用即可完成更新。`,
+        buttons: ["立即重启", "稍后重启"],
+        defaultId: 0,
+        cancelId: 1,
+      })
+      .then(({ response }) => {
+        if (response === 0) {
+          autoUpdater.quitAndInstall();
+        }
+      });
+  });
+
+  autoUpdater.on("error", (err) => {
+    log(`自动更新出错: ${err.message}`);
+  });
+
+  // 延迟 5 秒后首次检查，避免影响启动速度
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch((err) => {
+      log(`检查更新失败: ${err.message}`);
+    });
+  }, 5000);
+}
+
+/**
+ * 通过 GitHub Releases API 检查最新版本（全平台通用）。
+ *
+ * 健壮性设计:
+ * - 使用 Electron `net` 模块发起请求，自动遵循系统代理设置
+ *   （解决中国大陆用户通过 VPN/代理访问 GitHub 的问题）
+ * - 请求超时 15 秒，失败自动重试最多 2 次（间隔 5 秒）
+ * - 自动检查失败静默跳过；手动检查失败向前端发送错误提示
+ *
+ * @param {boolean} manual - 是否为用户手动触发（true 时无论结果都显示反馈）
+ * @param {number} retryCount - 当前重试次数（内部使用，外部调用无需传入）
+ */
+function checkGitHubRelease(manual = false, retryCount = 0) {
+  const currentVersion = app.getVersion();
+
+  /** 向渲染进程发送更新检查结果 */
+  const sendResult = (payload) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("update-check-result", {
+        ...payload,
+        currentVersion,
+        manual,
+      });
+    }
+  };
+
+  /** 处理可重试的失败 */
+  const handleRetryableError = (errorMsg) => {
+    if (retryCount < UPDATE_MAX_RETRIES) {
+      log(`更新检查失败 (第 ${retryCount + 1} 次)，${UPDATE_RETRY_DELAY / 1000} 秒后重试: ${errorMsg}`);
+      setTimeout(() => checkGitHubRelease(manual, retryCount + 1), UPDATE_RETRY_DELAY);
+    } else {
+      log(`更新检查最终失败 (已重试 ${UPDATE_MAX_RETRIES} 次): ${errorMsg}`);
+      if (manual) {
+        sendResult({ type: "error", message: `网络连接失败，请检查网络后重试` });
+      }
+    }
+  };
+
+  try {
+    // 使用 Electron net 模块：走 Chromium 网络栈，自动遵循系统代理
+    const req = net.request({
+      url: GITHUB_API_URL,
+      method: "GET",
+    });
+
+    req.setHeader("User-Agent", `AgentNews/${currentVersion}`);
+    req.setHeader("Accept", "application/vnd.github.v3+json");
+
+    // 超时处理
+    const timeoutId = setTimeout(() => {
+      req.abort();
+      log(`检查更新请求超时 (${UPDATE_REQUEST_TIMEOUT / 1000}s)`);
+      handleRetryableError("请求超时");
+    }, UPDATE_REQUEST_TIMEOUT);
+
+    req.on("response", (res) => {
+      let data = "";
+      res.on("data", (chunk) => (data += chunk.toString()));
+      res.on("end", () => {
+        clearTimeout(timeoutId);
+        try {
+          if (res.statusCode === 404) {
+            // 仓库尚无 Release，属于正常状态
+            log("尚无 GitHub Release，跳过更新检查");
+            if (manual) {
+              sendResult({ type: "up-to-date" });
+            }
+            return;
+          }
+          if (res.statusCode === 403) {
+            // GitHub API 限流 (60 次/小时 无认证)
+            log("GitHub API 限流 (403)，稍后重试");
+            handleRetryableError("API 请求频率超限");
+            return;
+          }
+          if (res.statusCode !== 200) {
+            log(`GitHub API 返回 ${res.statusCode}，跳过更新检查`);
+            if (manual) {
+              sendResult({ type: "error", message: `服务器返回 ${res.statusCode}，请稍后重试` });
+            }
+            return;
+          }
+
+          const release = JSON.parse(data);
+          const latestTag = release.tag_name || "";
+          const latestVersion = latestTag.replace(/^v/, "");
+
+          if (isNewerVersion(latestVersion, currentVersion)) {
+            log(`发现新版本 v${latestVersion} (当前 v${currentVersion})`);
+            sendResult({
+              type: "update-available",
+              version: latestVersion,
+              downloadUrl: release.html_url,
+            });
+          } else {
+            log(`当前已是最新版本 (v${currentVersion})`);
+            if (manual) {
+              sendResult({ type: "up-to-date" });
+            }
+          }
+        } catch (err) {
+          log(`解析 GitHub Release 响应失败: ${err.message}`);
+          if (manual) {
+            sendResult({ type: "error", message: "解析服务器响应失败" });
+          }
+        }
+      });
+
+      res.on("error", (err) => {
+        clearTimeout(timeoutId);
+        handleRetryableError(err.message);
+      });
+    });
+
+    req.on("error", (err) => {
+      clearTimeout(timeoutId);
+      handleRetryableError(err.message);
+    });
+
+    req.end();
+  } catch (err) {
+    // net 模块在极端情况下可能抛出同步异常
+    log(`更新检查异常: ${err.message}`);
+    if (manual) {
+      sendResult({ type: "error", message: "检查更新时发生错误" });
+    }
+  }
+}
+
+/**
+ * 比较语义化版本号，判断 latest 是否比 current 更新。
+ * @param {string} latest - 最新版本号 (如 "1.2.3")
+ * @param {string} current - 当前版本号 (如 "1.0.0")
+ * @returns {boolean}
+ */
+function isNewerVersion(latest, current) {
+  if (!latest || !current) return false;
+  const l = latest.split(".").map(Number);
+  const c = current.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    const lv = l[i] || 0;
+    const cv = c[i] || 0;
+    if (lv > cv) return true;
+    if (lv < cv) return false;
+  }
+  return false;
+}
+
+// ─── IPC: 渲染进程手动触发更新检查 ──────────────────────────
+ipcMain.handle("check-for-updates", async () => {
+  if (isDev) return { status: "dev" };
+  checkGitHubRelease(true);
+  return { status: "checking" };
+});
+
+// ─── IPC: 渲染进程请求打开外部链接 ─────────────────────────
+ipcMain.handle("open-external", async (_event, url) => {
+  if (url && typeof url === "string" && url.startsWith("https://")) {
+    shell.openExternal(url);
+  }
+});
