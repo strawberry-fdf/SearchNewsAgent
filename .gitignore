@@ -12,7 +12,10 @@ venv/
 # Database files
 *.db
 *.sqlite3
-
+backend/data/
+.playwright-mcp
+.pytest_cache
+.claude
 # Build artifacts
 *.tsbuildinfo
 backend/package-lock.json

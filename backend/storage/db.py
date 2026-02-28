@@ -26,8 +26,10 @@ from backend.config import settings
 
 logger = logging.getLogger(__name__)
 
-# 数据库文件存放在项目根目录下，可通过环境变量覆盖
+# 数据库文件路径（相对于项目根目录），默认 backend/data/agent_news.db
 DB_PATH: str = str(Path(__file__).resolve().parent.parent.parent / settings.SQLITE_DB_PATH)
+# 自动创建数据目录
+Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
 _db_pool: Optional[aiosqlite.Connection] = None
 
 # 自定义 JSON 编解码器，处理 SQLite TEXT 字段中存储的复杂类型 (datetime 等)
