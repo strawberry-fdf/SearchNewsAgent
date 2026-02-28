@@ -1,10 +1,17 @@
 ## [Completed]
+- 根目录文档整理: ELECTRON.md/xuqiu.md/系统说明文档.md 移入 docs/ 并重命名为 electron-packaging.md/product-requirements.md/system-architecture.md；更新所有引用路径（instructions/skills/README）
+- 项目文件清理与脚本 Node.js 化: 删除散落的 test_stdout/stderr.txt、start.sh、3 个平台 shell/ps1 脚本；新建 scripts/build-backend.mjs 统一跨平台 PyInstaller 打包（自动检测平台 + --mac/--win/--linux 参数）；package.json 中 npm 引用全部改为 pnpm
 - 大模型配置重构为多配置单激活模式: 参考筛选规则交互设计，支持保存多条 LLM 配置（名称/模型/API Key/Base URL），每次仅激活一个；删除 LLM 提供商选项，统一 OpenAI 兼容模式支持任意模型；新建/编辑配置改为屏幕中央弹窗；缓存管理只显示文章数据大小
 - 修复打包三大问题: ①后端改 --windowed + windowsHide 消除控制台弹窗; ②去掉 loading.html 实现无感启动; ③排除 venv/__pycache__/.db 减小包体至 ~173MB
 - 修复 ModuleNotFoundError (fastapi.middleware.cors): PyInstaller 改用 --collect-submodules 递归收集 fastapi/starlette/uvicorn/pydantic/openai/anthropic/httpcore 全部子模块
 - 删除信源时级联删除对应文章: `delete_source()` 先查信源名再删 articles 再删 sources，确保数据库一致性
 - 信源面板置顶功能完善: 分类置顶（pinned_categories 存 settings 表，有序列表）+ 信源置顶（pin_order 字段按先后排序），编辑模式下分类头部新增置顶按钮，正常模式显示 Pin 图标
 - 修复缓存统计不一致问题: 信源估算字节数扩展为包含所有文本字段（raw_html/clean_markdown/title/summary/analysis_json 等）+ WAL 文件大小
+
+- 后端测试全覆盖: 283 个测试用例全部通过，覆盖 12 个模块（dedup/models/rules_engine/extractor/feishu/rss_fetcher/web_scraper/db/pipeline/api/cross_scenarios），含单元测试+集成测试+全场景交叉复杂测试
+- 前端测试全覆盖: 223 个测试用例全部通过（13 个测试文件），覆盖 api/ScoreBadge/ThemeProvider/Sidebar/ArticleCard/ArticleFeed/SourcePanel/SourceManager/StatsPanel/Settings/UpdateToast/Home(page) + 集成测试；测试框架 Vitest 4.0.18 + @testing-library/react + jest-dom + user-event + jsdom
+- 工程化规范体系: Husky pre-commit hook（tsc类型检查+前端223测试+后端283测试）+ commit-msg hook（commitlint Conventional Commits 规范）；新增 5 个 Node.js 脚本: dev.mjs（开发启动）、commit.mjs（交互式规范提交）、release.mjs（版本发布+CHANGELOG+Tag）、check.mjs（手动质量检查）、build.mjs（统一构建流水线：质量检查→前端构建→后端打包→Electron打包）；语义化版本控制 major/minor/patch
+- README 重写 + CONTRIBUTING.md: README 全面更新（修正技术栈/架构图/项目结构/快速开始/脚本命令速查表/桌面应用说明/去除过时 MongoDB/Docker 引用）；新增 CONTRIBUTING.md 开源贡献指南（环境搭建/提交规范/测试要求/代码规范/PR 流程/版本发布/FAQ）
 
 ---
 【2026-02】Electron 桌面打包方案：
@@ -29,6 +36,9 @@
 3. 接入 CI/CD (GitHub Actions) 后，Win/Linux 切换为 electron-updater 静默更新
 
 ## [Key Decisions / Context]
+- **提交规范**: 使用 Conventional Commits (`feat:/fix:/docs:/style:/refactor:/perf:/test:/build:/ci:/chore:/revert:`)，Husky + commitlint 自动校验；`pnpm commit` 交互式引导提交
+- **版本发布**: 语义化版本 (SemVer)，`pnpm release:patch/minor/major` 自动递增版本号、更新 CHANGELOG.md、创建 Git Tag、同步前后端 package.json 版本
+- **pre-commit 检查**: 每次提交前自动执行 TypeScript 类型检查 + 前端 Vitest 223 测试 + 后端 Pytest 283 测试，任一失败则阻止提交
 - SourcePanel 展示全部信源（不再过滤 enabled），禁用信源以半透明+灰色圆点区分，启用信源显示绿色圆点
 - 编辑模式：点击铅笔图标进入，支持内联重命名（信源/分类）、置顶（Pin）、取消订阅（确认弹窗）；分类支持独立置顶（Pin 按钮），信源置顶按 pin_order 排序
 - 删除信源时级联删除该信源下的所有文章，保持数据库一致性
