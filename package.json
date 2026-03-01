@@ -7,29 +7,60 @@
   "main": "electron/main.js",
   "scripts": {
     "----------- 开发 -----------": "",
+    "dev": "node scripts/dev.mjs",
+    "dev:frontend": "node scripts/dev.mjs --frontend",
+    "dev:backend": "node scripts/dev.mjs --backend",
+    "dev:no-electron": "node scripts/dev.mjs --no-electron",
     "electron:dev": "electron .",
-    "dev:all": "concurrently --names backend,frontend,electron --prefix-colors cyan,green,magenta \"cd backend && python -m backend.main\" \"cd frontend && npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
-    "----------- 前端构建 -----------": "",
-    "build:frontend": "npm run build:electron --prefix frontend",
-    "----------- 后端构建 (PyInstaller) -----------": "",
-    "build:backend:win": "powershell -ExecutionPolicy Bypass -File scripts/build-backend.ps1",
-    "build:backend:linux": "bash scripts/build-backend.sh",
-    "----------- Electron 打包 -----------": "",
-    "build:win": "npm run build:frontend && npm run build:backend:win && electron-builder --win",
-    "build:linux": "npm run build:frontend && npm run build:backend:linux && electron-builder --linux",
-    "build:all": "npm run build:frontend && electron-builder --win --linux",
+    "dev:all": "concurrently --names backend,frontend,electron --prefix-colors cyan,green,magenta \"cd backend && python -m backend.main\" \"cd frontend && pnpm dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "----------- 代码检查 -----------": "",
+    "check": "node scripts/check.mjs",
+    "check:frontend": "node scripts/check.mjs --frontend",
+    "check:backend": "node scripts/check.mjs --backend",
+    "check:typecheck": "node scripts/check.mjs --typecheck",
+    "check:test": "node scripts/check.mjs --test",
+    "----------- 提交与发布 -----------": "",
+    "commit": "node scripts/commit.mjs",
+    "commit:push": "node scripts/commit.mjs --push",
+    "release": "node scripts/release.mjs",
+    "release:patch": "node scripts/release.mjs patch",
+    "release:minor": "node scripts/release.mjs minor",
+    "release:major": "node scripts/release.mjs major",
+    "----------- 构建 -----------": "",
+    "build": "node scripts/build.mjs",
+    "build:mac": "node scripts/build.mjs --mac",
+    "build:win": "node scripts/build.mjs --win",
+    "build:linux": "node scripts/build.mjs --linux",
+    "build:frontend": "node scripts/build.mjs --frontend",
+    "build:backend": "node scripts/build.mjs --backend",
+    "build:fast": "node scripts/build.mjs --skip-checks",
+    "build:no-test": "node scripts/build.mjs --skip-tests",
+    "----------- 底层构建（build.mjs 内部调用） -----------": "",
+    "build:frontend:raw": "pnpm --prefix frontend build:electron",
+    "build:backend:raw": "node scripts/build-backend.mjs",
     "----------- 工具 -----------": "",
     "clean": "rimraf dist build frontend/out frontend/.next",
-    "postinstall": "cd frontend && npm install"
+    "postinstall": "cd frontend && pnpm install",
+    "prepare": "husky"
   },
-  "dependencies": {},
+  "dependencies": {
+    "electron-updater": "^6.3.0"
+  },
   "devDependencies": {
-    "electron": "^33.0.0",
-    "electron-builder": "^25.1.0",
+    "@commitlint/cli": "^20.4.2",
+    "@commitlint/config-conventional": "^20.4.2",
     "concurrently": "^9.1.0",
     "cross-env": "^7.0.3",
-    "wait-on": "^8.0.0",
-    "rimraf": "^6.0.0"
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.0",
+    "husky": "^9.1.7",
+    "rimraf": "^6.0.0",
+    "wait-on": "^8.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron"
+    ]
   },
   "build": {
     "extends": "electron-builder.yml"

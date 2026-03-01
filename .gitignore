@@ -12,13 +12,20 @@ venv/
 # Database files
 *.db
 *.sqlite3
-
+backend/data/
+.playwright-mcp
+.pytest_cache
+.claude
 # Build artifacts
 *.tsbuildinfo
 backend/package-lock.json
 
 # Environment
 backend/.env
+.env
+.env.local
+.env.*.local
+# 注意: backend/.env.example 是干净模板（无密钥），允许提交
 
 # Build outputs
 .next/
@@ -45,3 +52,8 @@ Thumbs.db
 # Logs
 *.log
 /.github
+
+# Claude Code skills (本地 AI 辅助配置)
+.claude
+
+.npmrc

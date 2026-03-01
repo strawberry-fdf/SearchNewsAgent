@@ -1,5 +1,0 @@
-[Electron] ºó¶ËÆô¶¯: http://127.0.0.1:8000
-2026-02-27 23:35:45,802 [INFO] backend.storage.db: Connected to SQLite: D:\AgentNews\build\backend\_internal\agent_news.db
-2026-02-27 23:35:45,811 [INFO] apscheduler.scheduler: Adding job tentatively -- it will be properly scheduled when the scheduler starts
-2026-02-27 23:35:45,811 [INFO] apscheduler.scheduler: Added job "Periodic ingestion pipeline" to job store "default"
-2026-02-27 23:35:45,811 [INFO] apscheduler.scheduler: Scheduler started

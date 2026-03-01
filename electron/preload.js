@@ -5,7 +5,7 @@
  * 保持 contextIsolation 开启以确保安全性。
  */
 
-const { contextBridge } = require("electron");
+const { contextBridge, ipcRenderer } = require("electron");
 
 // 向渲染进程暴露最小化的桌面 API
 contextBridge.exposeInMainWorld("electronAPI", {
@@ -17,4 +17,26 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   /** 获取应用版本 */
   version: process.env.npm_package_version || "0.0.0",
+
+  // ── 自动更新 API ──────────────────────────────────────
+  /** 手动触发更新检查 */
+  checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
+
+  /** 监听更新检查结果（前端 Toast 展示） */
+  onUpdateCheckResult: (callback) => {
+    ipcRenderer.on("update-check-result", (_event, data) => callback(data));
+  },
+
+  /** 打开外部链接（由主进程安全执行） */
+  openExternal: (url) => ipcRenderer.invoke("open-external", url),
+
+  /** 监听更新下载进度 */
+  onUpdateProgress: (callback) => {
+    ipcRenderer.on("update-progress", (_event, data) => callback(data));
+  },
+
+  /** 监听更新开始下载 */
+  onUpdateDownloading: (callback) => {
+    ipcRenderer.on("update-downloading", (_event, data) => callback(data));
+  },
 });

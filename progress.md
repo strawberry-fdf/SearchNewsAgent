@@ -1,10 +1,20 @@
 ## [Completed]
+- 根目录文档整理: ELECTRON.md/xuqiu.md/系统说明文档.md 移入 docs/ 并重命名为 electron-packaging.md/product-requirements.md/system-architecture.md；更新所有引用路径（instructions/skills/README）
+- 项目文件清理与脚本 Node.js 化: 删除散落的 test_stdout/stderr.txt、start.sh、3 个平台 shell/ps1 脚本；新建 scripts/build-backend.mjs 统一跨平台 PyInstaller 打包（自动检测平台 + --mac/--win/--linux 参数）；package.json 中 npm 引用全部改为 pnpm
 - 大模型配置重构为多配置单激活模式: 参考筛选规则交互设计，支持保存多条 LLM 配置（名称/模型/API Key/Base URL），每次仅激活一个；删除 LLM 提供商选项，统一 OpenAI 兼容模式支持任意模型；新建/编辑配置改为屏幕中央弹窗；缓存管理只显示文章数据大小
 - 修复打包三大问题: ①后端改 --windowed + windowsHide 消除控制台弹窗; ②去掉 loading.html 实现无感启动; ③排除 venv/__pycache__/.db 减小包体至 ~173MB
 - 修复 ModuleNotFoundError (fastapi.middleware.cors): PyInstaller 改用 --collect-submodules 递归收集 fastapi/starlette/uvicorn/pydantic/openai/anthropic/httpcore 全部子模块
 - 删除信源时级联删除对应文章: `delete_source()` 先查信源名再删 articles 再删 sources，确保数据库一致性
 - 信源面板置顶功能完善: 分类置顶（pinned_categories 存 settings 表，有序列表）+ 信源置顶（pin_order 字段按先后排序），编辑模式下分类头部新增置顶按钮，正常模式显示 Pin 图标
 - 修复缓存统计不一致问题: 信源估算字节数扩展为包含所有文本字段（raw_html/clean_markdown/title/summary/analysis_json 等）+ WAL 文件大小
+
+- 后端测试全覆盖: 283 个测试用例全部通过，覆盖 12 个模块（dedup/models/rules_engine/extractor/feishu/rss_fetcher/web_scraper/db/pipeline/api/cross_scenarios），含单元测试+集成测试+全场景交叉复杂测试
+- 前端测试全覆盖: 223 个测试用例全部通过（13 个测试文件），覆盖 api/ScoreBadge/ThemeProvider/Sidebar/ArticleCard/ArticleFeed/SourcePanel/SourceManager/StatsPanel/Settings/UpdateToast/Home(page) + 集成测试；测试框架 Vitest 4.0.18 + @testing-library/react + jest-dom + user-event + jsdom
+- 工程化规范体系: Husky pre-commit hook（tsc类型检查+前端223测试+后端283测试）+ commit-msg hook（commitlint Conventional Commits 规范）；新增 5 个 Node.js 脚本: dev.mjs（开发启动）、commit.mjs（交互式规范提交）、release.mjs（版本发布+CHANGELOG+Tag）、check.mjs（手动质量检查）、build.mjs（统一构建流水线：质量检查→前端构建→后端打包→Electron打包）；语义化版本控制 major/minor/patch
+- README 重写 + CONTRIBUTING.md: README 全面更新（修正技术栈/架构图/项目结构/快速开始/脚本命令速查表/桌面应用说明/去除过时 MongoDB/Docker 引用）；新增 CONTRIBUTING.md 开源贡献指南（环境搭建/提交规范/测试要求/代码规范/PR 流程/版本发布/FAQ）
+- 英文 README + 截图: 新增 README_EN.md 中英切换；Playwright 截取暗色主题截图嵌入两份 README
+- 数据库路径修复: SQLITE_DB_PATH 默认改为 backend/data/agent_news.db，db.py 自动创建目录；.gitignore 忽略 backend/data/
+- PR #1 已更新: dev → main，包含自动更新/工程化工具链/测试套件/文档重构/DB路径修复
 
 ---
 【2026-02】Electron 桌面打包方案：
@@ -16,14 +26,22 @@
 - 生产模式架构: Electron 启动 → PyInstaller 后端 (API + 静态文件同源 localhost:8000) → BrowserWindow 加载
 - 用户数据 (.env + SQLite DB) 存储在系统 userData 目录，首次启动自动初始化
 
-## [In Progress]
+- 实现用户端自动更新检查: 所有平台通过 GitHub Releases API 检查新版本，弹窗引导下载；菜单栏"检查更新"即时反馈；启动后延迟 5 秒自动检查；electron-updater 代码保留备用（待 CI/CD 接入后 Win/Linux 可切换为静默更新）
+- 包管理器切换为 pnpm: 删除 node_modules/package-lock.json，新增 .npmrc（electron 镜像加速）、pnpm 配置；electron v33.4.11 已验证
+- 设置页新增"关于与更新"卡片: Settings.tsx 添加 AboutAndUpdate 组件，显示版本号/平台信息，提供手动"检查更新"按钮（调用 electronAPI IPC）；已清理 main.js 中的模拟弹窗测试代码
 
+## [In Progress]
+- 无
 
 ## [Next Steps]
-1. 在 Linux 运行 `npm run build:linux` 完整打包测试
-2. 实际安装并运行 Windows 打包产物，验证端到端功能正常
+1. 创建首个 GitHub Release (tag v1.0.0) 并手动上传打包产物，验证更新检查流程
+2. 在 Linux 运行 `pnpm run build:linux` 完整打包测试
+3. 接入 CI/CD (GitHub Actions) 后，Win/Linux 切换为 electron-updater 静默更新
 
 ## [Key Decisions / Context]
+- **提交规范**: 使用 Conventional Commits (`feat:/fix:/docs:/style:/refactor:/perf:/test:/build:/ci:/chore:/revert:`)，Husky + commitlint 自动校验；`pnpm commit` 交互式引导提交
+- **版本发布**: 语义化版本 (SemVer)，`pnpm release:patch/minor/major` 自动递增版本号、更新 CHANGELOG.md、创建 Git Tag、同步前后端 package.json 版本
+- **pre-commit 检查**: 每次提交前自动执行 TypeScript 类型检查 + 前端 Vitest 223 测试 + 后端 Pytest 283 测试，任一失败则阻止提交
 - SourcePanel 展示全部信源（不再过滤 enabled），禁用信源以半透明+灰色圆点区分，启用信源显示绿色圆点
 - 编辑模式：点击铅笔图标进入，支持内联重命名（信源/分类）、置顶（Pin）、取消订阅（确认弹窗）；分类支持独立置顶（Pin 按钮），信源置顶按 pin_order 排序
 - 删除信源时级联删除该信源下的所有文章，保持数据库一致性
@@ -39,3 +57,4 @@
 - **Electron 打包**: 生产模式下后端通过 STATIC_DIR 挂载前端静态文件，实现 API + 前端同源 (localhost:8000)，无需额外 CORS 配置
 - **PyInstaller**: 使用 --onedir 模式打包后端，hidden-import 覆盖全部 backend.* 子模块 + 关键三方库
 - **用户配置**: .env 存放于系统 userData 目录，首次启动从 default.env 模板复制；菜单栏提供"打开配置目录"快捷入口
+- **自动更新策略**: 暂不使用 CI/CD，所有平台统一通过 GitHub API 查询最新 Release tag 对比版本号；手动检查无论结果均显示反馈弹窗，启动自动检查仅新版本才弹窗；electron-updater 代码保留，待 CI/CD 就绪后 Win/Linux 可启用静默下载安装

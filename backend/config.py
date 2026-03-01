@@ -29,7 +29,8 @@ class Settings:
     """
 
     # ---------- SQLite 本地数据库 ----------
-    SQLITE_DB_PATH: str = os.getenv("SQLITE_DB_PATH", "agent_news.db")
+    # 相对于项目根目录的路径，默认存储在 backend/data/ 下
+    SQLITE_DB_PATH: str = os.getenv("SQLITE_DB_PATH", "backend/data/agent_news.db")
 
     # ---------- LLM Provider 配置 ----------
     # 可选值: "openai" | "anthropic"，决定调用哪个大模型 API
