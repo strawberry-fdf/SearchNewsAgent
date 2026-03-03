@@ -42,9 +42,6 @@ extraResources:
   # 默认环境变量模板（首次启动时复制到用户数据目录）
   - from: "build/default.env"
     to: "default.env"
-  # 托盘图标
-  - from: "build/tray-icon.png"
-    to: "tray-icon.png"
 
 # ── ASAR 打包 ────────────────────────────────────────────────
 asar: true
@@ -62,7 +59,6 @@ mac:
     - target: zip
       arch:
         - arm64
-  icon: "build/icon.icns"
   artifactName: "${productName}-${version}-mac-${arch}.${ext}"
   category: "public.app-category.news"
   darkModeSupport: true
@@ -86,16 +82,12 @@ win:
     - target: portable
       arch:
         - x64
-  icon: "build/icon.ico"
   artifactName: "${productName}-${version}-win-${arch}.${ext}"
 
 nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
-  installerIcon: "build/icon.ico"
-  uninstallerIcon: "build/icon.ico"
-  installerHeaderIcon: "build/icon.ico"
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: "AgentNews"
@@ -113,7 +105,6 @@ linux:
     - target: deb
       arch:
         - x64
-  icon: "build/icon.png"
   category: "Utility;Network"
   artifactName: "${productName}-${version}-linux-${arch}.${ext}"
   desktop:
