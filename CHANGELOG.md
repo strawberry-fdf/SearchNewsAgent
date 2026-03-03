@@ -1,3 +1,48 @@
+## [1.0.3] - 2026-03-03
+
+### ✨ 新功能
+- add app icons for all platforms (macOS/Windows/Linux)
+
+### 🐛 修复
+- **ci**: exclude duplicate debug files & use clobber upload to prevent 422
+- **ci**: 修复文件名含空格导致 gh release 失败 + 添加权限调试
+- **ci**: 用 gh CLI 替换 softprops/action-gh-release
+- **ci**: 修复 Publish Release 权限问题
+- **ci**: 修复三平台 CI 构建失败
+- **ci**: windows 打包仅保留 portable 规避 nsis 图标依赖
+- **ci**: 移除打包对 build/icon 资源的硬依赖
+
+### 📝 文档
+- update progress.md
+- 更新 progress.md CI 修复记录
+
+### 📦 构建
+- 同步主线并修复更新检查与发布流水线
+
+### 🔧 CI
+- 修复 .github/workflows 被忽略导致 Actions 不生效
+
+### 🔩 杂项
+- set update check interval to 1 minute for testing
+- rollback version to 1.0.2
+- revert version to 1.0.3
+- **release**: v1.0.12
+- **release**: v1.0.11
+- **release**: v1.0.10
+- **release**: v1.0.9
+- **release**: v1.0.8
+- **release**: v1.0.7
+- **release**: v1.0.6
+- 更新 progress.md 记录 Windows portable 构建调整
+- 更新 progress.md 记录 CI 图标依赖修复
+- 更新 progress.md 记录 v1.0.5 触发 Actions
+- **release**: v1.0.5
+- 更新 progress.md 记录 Actions 可见性修复
+- 更新 progress.md 记录 v1.0.4 发版
+- **release**: v1.0.4
+- **release**: v1.0.3
+- 更新 progress.md 记录分支同步与PR状态
+
 ## [1.0.12] - 2026-03-03
 
 ### ✨ 新功能
