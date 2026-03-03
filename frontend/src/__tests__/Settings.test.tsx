@@ -198,15 +198,23 @@ describe("Settings — LLM 配置", () => {
   it("删除 LLM 配置调用 deleteLlmConfig", async () => {
     const user = userEvent.setup();
     mockDeleteLlm.mockResolvedValue({});
+    // 使用未激活的配置以便展示删除按钮
+    mockGetLlmConfigs.mockResolvedValue({
+      items: [createLlmConfig({ is_active: false })],
+    });
 
     render(<Settings />);
+    // 非激活配置默认隐藏，先等待展开按钮出现
+    const expandBtn = await screen.findByText(/展开.*其他配置/);
+    await user.click(expandBtn);
+
     await waitFor(() => {
       const items = screen.getAllByText("GPT-4o-mini");
       expect(items.length).toBeGreaterThanOrEqual(1);
     });
 
     // 寻找删除按钮（title="删除配置"）
-    const deleteBtn = screen.getByTitle("删除配置");
+    const deleteBtn = await screen.findByTitle("删除配置");
     await user.click(deleteBtn);
     await waitFor(() => {
       expect(mockDeleteLlm).toHaveBeenCalled();
@@ -232,8 +240,7 @@ describe("Settings — 筛选预设", () => {
     // 点击展开按钮（chevron，title="编辑内容"）
     await user.click(screen.getByTitle("编辑内容"));
     await waitFor(() => {
-      // 展开后显示提示文字和 textarea 中的预设内容
-      expect(screen.getByText("筛选要求内容（传递给 LLM）")).toBeInTheDocument();
+      // 展开后显示 textarea 中的预设内容
       expect(screen.getByDisplayValue("仅保留与 AI 直接相关的文章")).toBeInTheDocument();
     });
   });
@@ -295,6 +302,8 @@ describe("Settings — 关于与更新", () => {
 describe("Settings — 默认筛选要求", () => {
   it("加载并显示当前筛选提示词", async () => {
     const user = userEvent.setup();
+    // 无激活预设时才显示默认筛选要求
+    mockGetPresets.mockResolvedValue({ items: [createFilterPreset({ is_active: false })] });
     render(<Settings />);
     // 默认筛选要求区域是折叠的，需要先展开
     await waitFor(() => expect(screen.getByText("默认筛选要求")).toBeInTheDocument());

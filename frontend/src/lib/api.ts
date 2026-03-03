@@ -176,9 +176,11 @@ export interface SourceCount {
 
 export async function getSourceArticleCounts(
   status?: string,
+  starred?: boolean,
 ): Promise<{ total: number; items: SourceCount[] }> {
   const params = new URLSearchParams();
   if (status) params.set("status", status);
+  if (starred !== undefined) params.set("starred", String(starred));
   const qs = params.toString();
   return fetchJSON(`/api/articles/source-counts${qs ? `?${qs}` : ""}`);
 }
@@ -238,6 +240,7 @@ export async function updateSource(
     enabled?: boolean;
     category?: string;
     name?: string;
+    url?: string;
     tags?: string[];
     fetch_interval_minutes?: number;
     fetch_since?: string | null;

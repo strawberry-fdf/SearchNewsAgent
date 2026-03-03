@@ -120,12 +120,14 @@ function SourceRow({
   onToggleEnabled,
   onUpdateCategory,
   onUpdateFetchSince,
+  onUpdateUrl,
   onDelete,
 }: {
   source: Source;
   onToggleEnabled: (id: string, enabled: boolean) => void;
   onUpdateCategory: (id: string, category: string) => void;
   onUpdateFetchSince: (id: string, fetchSince: string | null) => void;
+  onUpdateUrl: (id: string, url: string) => void;
   onDelete: (url: string) => void;
 }) {
   const [editingSince, setEditingSince] = useState(false);
@@ -160,7 +162,15 @@ function SourceRow({
               </span>
             ))}
         </div>
-        <p className="text-xs text-dark-muted truncate">{source.url}</p>
+        <p className="text-xs text-dark-muted truncate flex items-center gap-1">
+          <span>链接：</span>
+          <InlineEdit
+            value={source.url}
+            placeholder="点击编辑 URL"
+            onSave={(v) => { if (v) onUpdateUrl(source.id, v); }}
+            className="text-xs font-mono"
+          />
+        </p>
         <div className="mt-1 flex items-center gap-1 text-xs text-dark-muted">
           <span>分类：</span>
           <InlineEdit
@@ -250,6 +260,7 @@ function CategoryGroup({
   onToggleEnabled,
   onUpdateCategory,
   onUpdateFetchSince,
+  onUpdateUrl,
   onDelete,
   onRenameCategory,
 }: {
@@ -259,6 +270,7 @@ function CategoryGroup({
   onToggleEnabled: (id: string, enabled: boolean) => void;
   onUpdateCategory: (id: string, category: string) => void;
   onUpdateFetchSince: (id: string, fetchSince: string | null) => void;
+  onUpdateUrl: (id: string, url: string) => void;
   onDelete: (url: string) => void;
   onRenameCategory: (oldName: string, newName: string) => void;
 }) {
@@ -299,6 +311,7 @@ function CategoryGroup({
               onToggleEnabled={onToggleEnabled}
               onUpdateCategory={onUpdateCategory}
               onUpdateFetchSince={onUpdateFetchSince}
+              onUpdateUrl={onUpdateUrl}
               onDelete={onDelete}
             />
           ))}
@@ -385,6 +398,17 @@ export default function SourceManager() {
       await updateSource(id, { fetch_since: fetchSince });
       setSources((prev) =>
         prev.map((s) => (s.id === id ? { ...s, fetch_since: fetchSince } : s))
+      );
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleUpdateUrl(id: string, url: string) {
+    try {
+      await updateSource(id, { url });
+      setSources((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, url } : s))
       );
     } catch (err) {
       console.error(err);
@@ -567,6 +591,7 @@ export default function SourceManager() {
               onToggleEnabled={handleToggleEnabled}
               onUpdateCategory={handleUpdateCategory}
               onUpdateFetchSince={handleUpdateFetchSince}
+              onUpdateUrl={handleUpdateUrl}
               onDelete={handleDelete}
               onRenameCategory={handleRenameCategory}
             />

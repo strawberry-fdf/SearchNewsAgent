@@ -10,7 +10,7 @@
  * 开发模式: Electron → 连接 localhost:3000 (Next.js dev) + localhost:8000 (FastAPI dev)
  */
 
-const { app, BrowserWindow, Menu, dialog, shell, ipcMain, net } = require("electron");
+const { app, BrowserWindow, Menu, dialog, shell, ipcMain, net, Tray, nativeImage } = require("electron");
 const path = require("path");
 const { spawn } = require("child_process");
 const http = require("http");
@@ -27,6 +27,8 @@ const BACKEND_STARTUP_TIMEOUT = 60_000; // 60 秒超时
 
 let backendProcess = null;
 let mainWindow = null;
+let tray = null;
+let isQuitting = false;
 
 // ─── 日志辅助 ────────────────────────────────────────────────
 function log(msg) {
@@ -220,7 +222,103 @@ function createMainWindow() {
     mainWindow = null;
   });
 
+  // 拦截窗口关闭事件：弹出对话框让用户选择最小化到托盘还是完全退出
+  mainWindow.on("close", (e) => {
+    if (isQuitting) return; // 真正退出时不拦截
+    e.preventDefault();
+    dialog
+      .showMessageBox(mainWindow, {
+        type: "question",
+        title: "关闭窗口",
+        message: "您希望如何处理？",
+        detail: "最小化到托盘后，应用将在后台继续运行。",
+        buttons: ["最小化到托盘", "完全退出", "取消"],
+        defaultId: 0,
+        cancelId: 2,
+      })
+      .then(({ response }) => {
+        if (response === 0) {
+          // 最小化到托盘
+          mainWindow.hide();
+        } else if (response === 1) {
+          // 完全退出
+          isQuitting = true;
+          app.quit();
+        }
+        // response === 2: 取消，什么也不做
+      });
+  });
+
   return mainWindow;
+}
+
+/**
+ * 创建系统托盘图标及右键菜单。
+ */
+function createTray() {
+  // 托盘图标路径：优先使用 build 目录下的 tray-icon.png，否则回退到通用 icon.png
+  let trayIconPath;
+  if (isDev) {
+    trayIconPath =
+      fs.existsSync(path.join(__dirname, "..", "build", "tray-icon.png"))
+        ? path.join(__dirname, "..", "build", "tray-icon.png")
+        : path.join(__dirname, "..", "build", "icon.png");
+  } else {
+    trayIconPath =
+      fs.existsSync(path.join(process.resourcesPath, "tray-icon.png"))
+        ? path.join(process.resourcesPath, "tray-icon.png")
+        : path.join(__dirname, "..", "build", "icon.png");
+  }
+
+  // 如果图标文件不存在，创建一个 16x16 的空白图标
+  let trayImage;
+  if (fs.existsSync(trayIconPath)) {
+    trayImage = nativeImage.createFromPath(trayIconPath);
+    // macOS 托盘图标推荐 16x16，自动缩放
+    if (process.platform === "darwin") {
+      trayImage = trayImage.resize({ width: 16, height: 16 });
+    }
+  } else {
+    // 生成一个简单的空白图标作为后备
+    trayImage = nativeImage.createEmpty();
+  }
+
+  tray = new Tray(trayImage);
+  tray.setToolTip("AgentNews - AI 智能资讯精选");
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: "显示主窗口",
+      click: () => {
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      },
+    },
+    { type: "separator" },
+    {
+      label: "完全退出",
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ]);
+
+  tray.setContextMenu(contextMenu);
+
+  // 单击托盘图标：显示/隐藏主窗口
+  tray.on("click", () => {
+    if (mainWindow) {
+      if (mainWindow.isVisible()) {
+        mainWindow.focus();
+      } else {
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    }
+  });
 }
 
 /**
@@ -303,6 +401,7 @@ function buildAppMenu() {
 
 app.whenReady().then(async () => {
   buildAppMenu();
+  createTray();
   const win = createMainWindow();
 
   if (isDev) {
@@ -340,13 +439,18 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
-  stopBackend();
-  if (process.platform !== "darwin") {
-    app.quit();
+  // 当所有窗口关闭时，不自动退出，因为可能最小化到了托盘
+  // 仅在 isQuitting 为 true 时才真正退出
+  if (isQuitting) {
+    stopBackend();
+    if (process.platform !== "darwin") {
+      app.quit();
+    }
   }
 });
 
 app.on("before-quit", () => {
+  isQuitting = true;
   stopBackend();
 });
 
@@ -647,4 +751,20 @@ ipcMain.handle("open-external", async (_event, url) => {
   if (url && typeof url === "string" && url.startsWith("https://")) {
     shell.openExternal(url);
   }
+});
+
+// ─── IPC: 开机自启动管理 ──────────────────────────────────────
+ipcMain.handle("get-auto-launch", async () => {
+  const settings = app.getLoginItemSettings();
+  return { enabled: settings.openAtLogin };
+});
+
+ipcMain.handle("set-auto-launch", async (_event, enabled) => {
+  app.setLoginItemSettings({
+    openAtLogin: enabled,
+    // macOS: 使用 AppleScript 方式注册（适用于未签名应用）
+    // Windows/Linux: 自动注册到启动目录/注册表
+  });
+  const updated = app.getLoginItemSettings();
+  return { enabled: updated.openAtLogin };
 });

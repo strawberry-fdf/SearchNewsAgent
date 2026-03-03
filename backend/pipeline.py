@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 async def run_ingestion_pipeline(
     progress_cb: Optional[Callable[[str], None]] = None,
     filter_prompt: str = "",
+    use_custom_rules: bool = False,
 ) -> Dict[str, int]:
     """
     执行完整采集流水线。
@@ -44,6 +45,9 @@ async def run_ingestion_pipeline(
         前端 SSE 流式日志就是基于此回调实现的。
     filter_prompt : str
         可选的用户自定义筛选要求，会追加到 LLM System Prompt 中。
+    use_custom_rules : bool
+        当用户激活了自定义筛选规则预设时为 True，此时仅使用
+        LLM 的 model_selected 作为唯一筛选依据，跳过硬编码规则引擎。
 
     Returns
     -------
@@ -171,7 +175,15 @@ async def run_ingestion_pipeline(
                     source_tags = s.get("tags") or []
                     break
 
-        status, reason = evaluate_article(analysis_dict, source_tags)
+        # 自定义筛选规则激活时，仅使用 LLM 的 model_selected 作为唯一筛选依据；
+        # 否则走硬编码四步规则引擎（默认行为）
+        if use_custom_rules:
+            if analysis_dict.get("model_selected", False):
+                status, reason = "selected", ""
+            else:
+                status, reason = "rejected", "REJECTED_BY_CUSTOM_RULES"
+        else:
+            status, reason = evaluate_article(analysis_dict, source_tags)
 
         await db.update_article(h, {
             "analysis": analysis_dict,

@@ -191,17 +191,22 @@ describe("SourceManager — 删除", () => {
   it("点击删除按钮调用 deleteSource 并确认", async () => {
     const user = userEvent.setup();
     mockDeleteSource.mockResolvedValue({});
+    // Mock confirm to return true so handleDelete proceeds
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<SourceManager />);
     await waitFor(() => expect(screen.getByText("TechCrunch")).toBeInTheDocument());
 
-    // 找到删除按钮（带 hover:text-red-400 类名的按钮）
+    // 找到删除按钮（同时带 text-dark-muted 和 hover:text-red-400 类名，排除启用状态的 toggle 按钮）
     const deleteButtons = screen.getAllByRole("button").filter(
-      (btn) => btn.className.includes("hover:text-red-400")
+      (btn) =>
+        btn.className.includes("hover:text-red-400") &&
+        btn.className.includes("text-dark-muted")
     );
     expect(deleteButtons.length).toBeGreaterThan(0);
 
     await user.click(deleteButtons[0]);
     expect(mockDeleteSource).toHaveBeenCalled();
+    confirmSpy.mockRestore();
   });
 });
 

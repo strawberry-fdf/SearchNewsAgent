@@ -22,6 +22,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState("feed");
   const [stats, setStats] = useState<Stats | null>(null);
   const [activeSource, setActiveSource] = useState<string | null>(null);
+  const [sourcePanelRefreshKey, setSourcePanelRefreshKey] = useState(0);
 
   useEffect(() => {
     getStats()
@@ -55,13 +56,14 @@ export default function Home() {
             mode={feedMode}
             activeSource={activeSource}
             onSourceChange={setActiveSource}
+            refreshKey={sourcePanelRefreshKey}
           />
         )}
 
         {/* 内容区 */}
-        {activeTab === "feed" && <ArticleFeed mode="feed" sourceFilter={activeSource} />}
-        {activeTab === "all" && <ArticleFeed mode="all" sourceFilter={activeSource} />}
-        {activeTab === "starred" && <ArticleFeed mode="starred" sourceFilter={activeSource} />}
+        {activeTab === "feed" && <ArticleFeed mode="feed" sourceFilter={activeSource} onStarChange={() => setSourcePanelRefreshKey((k) => k + 1)} />}
+        {activeTab === "all" && <ArticleFeed mode="all" sourceFilter={activeSource} onStarChange={() => setSourcePanelRefreshKey((k) => k + 1)} />}
+        {activeTab === "starred" && <ArticleFeed mode="starred" sourceFilter={activeSource} onStarChange={() => setSourcePanelRefreshKey((k) => k + 1)} />}
         {activeTab === "stats" && <StatsPanel />}
         {activeTab === "sources" && <SourceManager />}
         {activeTab === "settings" && <Settings />}

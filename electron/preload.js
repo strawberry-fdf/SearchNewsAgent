@@ -30,6 +30,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   /** 打开外部链接（由主进程安全执行） */
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
 
+  // ── 开机自启动 API ────────────────────────────────────
+  /** 获取当前开机自启动状态 */
+  getAutoLaunch: () => ipcRenderer.invoke("get-auto-launch"),
+
+  /** 设置开机自启动 */
+  setAutoLaunch: (enabled) => ipcRenderer.invoke("set-auto-launch", enabled),
+
   /** 监听更新下载进度 */
   onUpdateProgress: (callback) => {
     ipcRenderer.on("update-progress", (_event, data) => callback(data));

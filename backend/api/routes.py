@@ -65,6 +65,7 @@ async def _run_pipeline_bg():
         app_settings = await db.get_settings()
         # Use active preset prompts if available (multi-select), otherwise fall back to manual prompt
         active_presets = await db.get_active_filter_presets()
+        use_custom_rules = False
         if active_presets:
             # Combine all active preset prompts
             preset_prompts = [p.get("prompt", "").strip() for p in active_presets if p.get("prompt", "").strip()]
@@ -73,11 +74,16 @@ async def _run_pipeline_bg():
                 filter_prompt = f"当前激活的筛选规则预设（共 {len(preset_prompts)} 条，必须全部满足）:\n"
                 for i, (name, prompt) in enumerate(zip(preset_names, preset_prompts), 1):
                     filter_prompt += f"\n【规则 {i}: {name}】\n{prompt}\n"
+                use_custom_rules = True
             else:
                 filter_prompt = app_settings.get("llm_filter_prompt", "")
         else:
             filter_prompt = app_settings.get("llm_filter_prompt", "")
-        stats = await run_ingestion_pipeline(progress_cb=_emit_log, filter_prompt=filter_prompt)
+        stats = await run_ingestion_pipeline(
+            progress_cb=_emit_log,
+            filter_prompt=filter_prompt,
+            use_custom_rules=use_custom_rules,
+        )
         _pipeline_state["stats"] = stats
         _emit_log("__DONE__")
     except Exception as exc:
@@ -186,9 +192,10 @@ async def list_selected_articles(
 @router.get("/api/articles/source-counts")
 async def get_article_source_counts(
     status: Optional[str] = Query(None, description="Filter by status: selected|rejected|pending"),
+    starred: Optional[bool] = Query(None, description="Filter by starred state: true|false"),
 ):
-    """获取每个信源的文章数量，支持按状态过滤。用于侧边栏信源导航。"""
-    counts = await db.get_source_article_counts(status=status)
+    """获取每个信源的文章数量，支持按状态和收藏状态过滤。用于侧边栏信源导航。"""
+    counts = await db.get_source_article_counts(status=status, starred=starred)
     total = sum(c["count"] for c in counts)
     return {"total": total, "items": counts}
 
@@ -276,6 +283,7 @@ class SourceUpdate(BaseModel):
     enabled: Optional[bool] = None
     category: Optional[str] = None
     name: Optional[str] = None
+    url: Optional[str] = None
     tags: Optional[List[str]] = None
     fetch_interval_minutes: Optional[int] = None
     fetch_since: Optional[str] = None  # ISO date string or empty string to clear

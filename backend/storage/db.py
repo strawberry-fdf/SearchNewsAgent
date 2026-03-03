@@ -496,14 +496,20 @@ async def count_articles(status: Optional[str] = None, keyword: Optional[str] = 
     return row[0] if row else 0
 
 
-async def get_source_article_counts(status: Optional[str] = None) -> List[Dict[str, Any]]:
-    """获取每个信源的文章数量，可按状态过滤。返回 [{source_name, count}]，按数量降序。"""
+async def get_source_article_counts(status: Optional[str] = None, starred: Optional[bool] = None) -> List[Dict[str, Any]]:
+    """获取每个信源的文章数量，可按状态和收藏状态过滤。返回 [{source_name, count}]，按数量降序。"""
     db = await get_db()
     sql = "SELECT source_name, COUNT(*) as cnt FROM articles"
+    conditions: List[str] = []
     params: List[Any] = []
     if status:
-        sql += " WHERE status = ?"
+        conditions.append("status = ?")
         params.append(status)
+    if starred is not None:
+        conditions.append("starred = ?")
+        params.append(1 if starred else 0)
+    if conditions:
+        sql += " WHERE " + " AND ".join(conditions)
     sql += " GROUP BY source_name ORDER BY cnt DESC"
     cursor = await db.execute(sql, tuple(params))
     rows = await cursor.fetchall()
@@ -530,7 +536,7 @@ async def toggle_star(url_hash: str) -> bool:
 
 async def update_source(source_id: str, updates: Dict[str, Any]) -> bool:
     db = await get_db()
-    allowed = {"enabled", "category", "name", "tags", "fetch_interval_minutes", "fetch_since", "pinned", "pin_order"}
+    allowed = {"enabled", "category", "name", "url", "tags", "fetch_interval_minutes", "fetch_since", "pinned", "pin_order"}
     set_clauses = []
     params = []
     for k, v in updates.items():

@@ -1,4 +1,12 @@
 ## [Completed]
+- 设置页 UI 精简: LLM 配置和筛选规则区块默认只展示激活项，非激活项折叠隐藏（"展开 其他配置/未激活规则"），移除冗余提示横幅和空状态文本
+- 大模型筛选规则唯一性执行: 当用户定义了自定义筛选预设且激活时，Pipeline 绕过硬编码 4 步 engine 规则，仅以 LLM 输出的 model_selected 作为唯一筛选标准
+- 收藏模块信源计数修复: SourcePanel 在收藏模式下传 starred=true 只统计收藏文章数；星标切换时通过 refreshKey 机制实时刷新信源计数
+- 测试修复: Settings.test.tsx 3 个断言、SourceManager.test.tsx 删除测试（window.confirm mock + 精确按钮选择器），前端 223 / 后端 283 全部通过
+- 信源 URL 编辑功能: 信源管理中 URL 支持 InlineEdit 点击编辑，保存后更新数据库并刷新列表；后端 SourceUpdate 模型和 db.py allowed 集合新增 url 字段
+- 全局图标替换基础架构: 创建 build/ 目录（icon.ico/icon.icns/icon.png/tray-icon.png），Sidebar Logo 支持 /logo.png 图片自动加载（失败回退文字 AN），electron-builder.yml 增加 tray-icon 资源打包
+- 窗口关闭最小化到托盘: 拦截 BrowserWindow close 事件弹出三选对话框（最小化/退出/取消），系统托盘图标 + 右键菜单（显示主窗口/完全退出），单击托盘图标恢复窗口
+- 开机自启动功能: Electron 主进程 IPC (get-auto-launch/set-auto-launch) + app.setLoginItemSettings 跨平台注册；前端设置页新增「系统集成」卡片含开机自启动开关及状态回显
 - 根目录文档整理: ELECTRON.md/xuqiu.md/系统说明文档.md 移入 docs/ 并重命名为 electron-packaging.md/product-requirements.md/system-architecture.md；更新所有引用路径（instructions/skills/README）
 - 项目文件清理与脚本 Node.js 化: 删除散落的 test_stdout/stderr.txt、start.sh、3 个平台 shell/ps1 脚本；新建 scripts/build-backend.mjs 统一跨平台 PyInstaller 打包（自动检测平台 + --mac/--win/--linux 参数）；package.json 中 npm 引用全部改为 pnpm
 - 大模型配置重构为多配置单激活模式: 参考筛选规则交互设计，支持保存多条 LLM 配置（名称/模型/API Key/Base URL），每次仅激活一个；删除 LLM 提供商选项，统一 OpenAI 兼容模式支持任意模型；新建/编辑配置改为屏幕中央弹窗；缓存管理只显示文章数据大小
@@ -34,9 +42,9 @@
 - 无
 
 ## [Next Steps]
-1. 创建首个 GitHub Release (tag v1.0.0) 并手动上传打包产物，验证更新检查流程
-2. 在 Linux 运行 `pnpm run build:linux` 完整打包测试
-3. 接入 CI/CD (GitHub Actions) 后，Win/Linux 切换为 electron-updater 静默更新
+1. 将实际图标资源放入 build/ 目录（icon.ico/icon.icns/icon.png/tray-icon.png）和 frontend/public/logo.png，替换占位文件
+2. 创建首个 GitHub Release (tag v1.0.0) 并手动上传打包产物，验证更新检查流程
+3. 在 Linux 运行 `pnpm run build:linux` 完整打包测试
 
 ## [Key Decisions / Context]
 - **提交规范**: 使用 Conventional Commits (`feat:/fix:/docs:/style:/refactor:/perf:/test:/build:/ci:/chore:/revert:`)，Husky + commitlint 自动校验；`pnpm commit` 交互式引导提交
@@ -58,3 +66,7 @@
 - **PyInstaller**: 使用 --onedir 模式打包后端，hidden-import 覆盖全部 backend.* 子模块 + 关键三方库
 - **用户配置**: .env 存放于系统 userData 目录，首次启动从 default.env 模板复制；菜单栏提供"打开配置目录"快捷入口
 - **自动更新策略**: 暂不使用 CI/CD，所有平台统一通过 GitHub API 查询最新 Release tag 对比版本号；手动检查无论结果均显示反馈弹窗，启动自动检查仅新版本才弹窗；electron-updater 代码保留，待 CI/CD 就绪后 Win/Linux 可启用静默下载安装
+- **窗口关闭行为**: 点击关闭按钮弹出三选对话框（最小化到托盘/完全退出/取消），isQuitting 标志位控制真正退出时跳过拦截；系统托盘使用 build/tray-icon.png，右键菜单含「显示主窗口」「完全退出」
+- **开机自启动**: 使用 Electron 内置 app.setLoginItemSettings/getLoginItemSettings，跨平台兼容（Windows 注册表/macOS 登录项/Linux XDG autostart）；前端设置页「系统集成」卡片仅在 Electron 环境显示
+- **信源 URL 编辑**: 复用 InlineEdit 组件，支持点击编辑保存，后端 PATCH /api/sources/:id 支持 url 字段更新
+- **图标替换架构**: build/ 目录存放打包图标（icon.ico/icns/png + tray-icon.png），前端 Sidebar Logo 加载 /logo.png 图片（前端 public/ 目录），加载失败回退为 AN 文字 Logo

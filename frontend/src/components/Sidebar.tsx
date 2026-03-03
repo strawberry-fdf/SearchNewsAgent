@@ -43,7 +43,22 @@ export default function Sidebar({ activeTab, onTabChange, stats }: SidebarProps)
     >
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 h-16 border-b border-dark-border">
-        <div className="w-8 h-8 rounded-lg bg-dark-accent flex items-center justify-center text-black font-bold text-sm flex-shrink-0">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/logo.png"
+          alt="AgentNews"
+          className="w-8 h-8 rounded-lg flex-shrink-0"
+          onError={(e) => {
+            // 图片加载失败时回退为文字 Logo
+            const target = e.currentTarget;
+            target.style.display = "none";
+            const fallback = target.nextElementSibling as HTMLElement | null;
+            if (fallback) fallback.style.display = "flex";
+          }}
+        />
+        <div
+          className="w-8 h-8 rounded-lg bg-dark-accent items-center justify-center text-black font-bold text-sm flex-shrink-0 hidden"
+        >
           AN
         </div>
         {!collapsed && (

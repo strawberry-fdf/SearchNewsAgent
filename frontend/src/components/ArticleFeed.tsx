@@ -37,6 +37,8 @@ interface ArticleFeedProps {
   statusFilter?: string;
   /** 按信源名称过滤（来自 SourcePanel） */
   sourceFilter?: string | null;
+  /** 收藏状态变化时回调（用于通知 SourcePanel 刷新计数） */
+  onStarChange?: () => void;
 }
 
 type GroupMode = "date" | "source";
@@ -94,7 +96,7 @@ function groupBySource(articles: Article[]): Record<string, Article[]> {
   return sorted;
 }
 
-export default function ArticleFeed({ mode, statusFilter, sourceFilter }: ArticleFeedProps) {
+export default function ArticleFeed({ mode, statusFilter, sourceFilter, onStarChange }: ArticleFeedProps) {
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -196,6 +198,7 @@ export default function ArticleFeed({ mode, statusFilter, sourceFilter }: Articl
           a.url_hash === urlHash ? { ...a, starred: res.starred } : a
         )
       );
+      onStarChange?.();
     } catch (err) {
       console.error(err);
     }

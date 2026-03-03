@@ -33,6 +33,8 @@ interface SourcePanelProps {
   mode: "feed" | "all" | "starred";
   activeSource: string | null;
   onSourceChange: (sourceName: string | null) => void;
+  /** 外部触发刷新计数（如收藏变化时） */
+  refreshKey?: number;
 }
 
 const UNCATEGORIZED = "未分类";
@@ -95,6 +97,7 @@ export default function SourcePanel({
   mode,
   activeSource,
   onSourceChange,
+  refreshKey,
 }: SourcePanelProps) {
   const [sources, setSources] = useState<Source[]>([]);
   const [counts, setCounts] = useState<SourceCount[]>([]);
@@ -110,12 +113,13 @@ export default function SourcePanel({
   // 分类置顶列表（有序）
   const [pinnedCategories, setPinnedCategories] = useState<string[]>([]);
 
-  // 加载信源列表和计数：精选模式按 selected 过滤，其它模式取全部
+  // 加载信源列表和计数：精选模式按 selected 过滤，收藏模式按 starred 过滤，其它模式取全部
   useEffect(() => {
     const status = mode === "feed" ? "selected" : undefined;
+    const starred = mode === "starred" ? true : undefined;
     Promise.all([
       getSources(),
-      getSourceArticleCounts(status),
+      getSourceArticleCounts(status, starred),
       getPinnedCategories(),
     ]).then(([srcRes, countRes, pinCatRes]) => {
       setSources(srcRes.items);
@@ -123,7 +127,7 @@ export default function SourcePanel({
       setTotalCount(countRes.total);
       setPinnedCategories(pinCatRes.pinned_categories || []);
     }).catch(console.error);
-  }, [mode]);
+  }, [mode, refreshKey]);
 
   const countMap = useMemo(() => {
     const map = new Map<string, number>();

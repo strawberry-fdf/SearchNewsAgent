@@ -158,10 +158,9 @@ pnpm build:linux      # 构建 Linux 桌面应用
 |------|------|----------|
 | 1 | 分类拦截 — `category == "非AI/通用工具"` | `REJECTED_NON_AI` |
 | 2 | 相关性 — `ai_relevance < 60` | `REJECTED_LOW_RELEVANCE` |
-| 3 | 模型推荐 — `model_selected == false`（"大佬blog"信源豁免） | `REJECTED_MODEL_UNSELECTED` |
+| 3 | 模型推荐 — `model_selected == false` | `REJECTED_MODEL_UNSELECTED` |
 | 4 | 重要性门槛 — 按分类动态阈值 | `REJECTED_LOW_IMPORTANCE` |
 
-**Step 4 动态阈值**：模型发布 75 · 论文 82 · 评测 84 · DevTool 86 · 行业 88
 
 ---
 
