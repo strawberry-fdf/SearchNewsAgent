@@ -1,4 +1,5 @@
 ## [Completed]
+- Patch 发版验证: 已在 main 成功发布并推送 `v1.0.5`，GitHub Actions `Build & Release` 已被新 tag 正常触发
 - CI 可见性修复: `.gitignore` 原先忽略整个 `.github` 导致 workflow 未入库；已放开 `.github/workflows/*.yml` 并将 `release.yml` 提交到 main
 - Patch 发版推进: main 分支执行 patch 时 `v1.0.3` 因历史标签冲突，已顺延成功发布并推送 `v1.0.4`（commit + tag）
 - 分支同步与提交流程完成: 已拉取远端 main 合并到 dev，解决 progress.md 冲突后推送分支并创建 PR #2（dev -> main）
