@@ -122,7 +122,6 @@ SearchNewsAgent/
 ├── electron/                    # Electron 桌面主进程
 ├── scripts/                     # Node.js 工程化脚本
 │   ├── dev.mjs                  #   开发环境启动器
-│   ├── commit.mjs               #   交互式规范提交
 │   ├── release.mjs              #   语义化版本发布
 │   ├── check.mjs                #   代码质量检查
 │   └── build.mjs                #   统一构建流水线
@@ -139,13 +138,8 @@ SearchNewsAgent/
 ```bash
 pnpm dev              # 启动开发环境（后端 + 前端 + Electron）
 pnpm check            # 全部质量检查（tsc + Vitest + Pytest）
-pnpm commit           # 交互式规范提交
-pnpm release:patch    # 发布补丁版本 (x.x.1)
-pnpm release:minor    # 发布次版本 (x.1.0)
-pnpm release:major    # 发布主版本 (1.0.0)
-pnpm build:mac        # 构建 macOS 桌面应用
-pnpm build:win        # 构建 Windows 桌面应用
-pnpm build:linux      # 构建 Linux 桌面应用
+pnpm release          # 单命令发版（交互选择版本 + commit message）
+pnpm build            # 单命令构建（交互选择 mac/win/linux）
 ```
 
 > 完整命令列表见 `package.json` 中的 scripts 字段

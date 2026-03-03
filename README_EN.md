@@ -122,7 +122,6 @@ SearchNewsAgent/
 ├── electron/                    # Electron main process
 ├── scripts/                     # Node.js engineering scripts
 │   ├── dev.mjs                  #   Dev environment launcher
-│   ├── commit.mjs               #   Interactive conventional commit
 │   ├── release.mjs              #   Semantic version release
 │   ├── check.mjs                #   Code quality checks
 │   └── build.mjs                #   Unified build pipeline
@@ -139,13 +138,8 @@ SearchNewsAgent/
 ```bash
 pnpm dev              # Start dev environment (backend + frontend + Electron)
 pnpm check            # Run all quality checks (tsc + Vitest + Pytest)
-pnpm commit           # Interactive conventional commit
-pnpm release:patch    # Release patch version (x.x.1)
-pnpm release:minor    # Release minor version (x.1.0)
-pnpm release:major    # Release major version (1.0.0)
-pnpm build:mac        # Build macOS desktop app
-pnpm build:win        # Build Windows desktop app
-pnpm build:linux      # Build Linux desktop app
+pnpm release          # Single-command release (interactive version + commit message)
+pnpm build            # Single-command build (interactive platform selection)
 ```
 
 > Full command list in the `scripts` field of `package.json`

@@ -281,13 +281,13 @@ class TestConfigChangeImpact:
     async def test_llm_config_switch_isolation(self, test_db):
         """切换 LLM 配置不影响已有分析结果。"""
         # 创建并激活配置 A
-        id_a = await db.create_llm_config("ConfigA", "model-a", "key-a")
+        id_a = await db.create_llm_config("ConfigA", "openai", "model-a", "key-a")
         await db.activate_llm_config(id_a)
         active = await db.get_active_llm_config()
         assert active["model"] == "model-a"
 
         # 创建并激活配置 B（应停用 A）
-        id_b = await db.create_llm_config("ConfigB", "model-b", "key-b")
+        id_b = await db.create_llm_config("ConfigB", "openai", "model-b", "key-b")
         await db.activate_llm_config(id_b)
         active = await db.get_active_llm_config()
         assert active["model"] == "model-b"

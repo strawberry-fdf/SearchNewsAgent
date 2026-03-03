@@ -148,6 +148,7 @@ async def _init_schema(db: aiosqlite.Connection):
     CREATE TABLE IF NOT EXISTS llm_configs (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
+        provider TEXT DEFAULT 'openai',
         model TEXT DEFAULT '',
         api_key TEXT DEFAULT '',
         base_url TEXT DEFAULT '',
@@ -164,6 +165,7 @@ async def _init_schema(db: aiosqlite.Connection):
         "ALTER TABLE sources ADD COLUMN fetch_since TEXT DEFAULT NULL",
         "ALTER TABLE sources ADD COLUMN pinned INTEGER DEFAULT 0",
         "ALTER TABLE sources ADD COLUMN pin_order INTEGER DEFAULT 0",
+        "ALTER TABLE llm_configs ADD COLUMN provider TEXT DEFAULT 'openai'",
     ]
     for stmt in migration_stmts:
         try:
@@ -862,14 +864,20 @@ async def get_llm_configs() -> List[Dict[str, Any]]:
     return result
 
 
-async def create_llm_config(name: str, model: str = "", api_key: str = "", base_url: str = "") -> str:
+async def create_llm_config(
+    name: str,
+    provider: str = "openai",
+    model: str = "",
+    api_key: str = "",
+    base_url: str = "",
+) -> str:
     """创建新的 LLM 配置，返回配置 ID。"""
     db = await get_db()
     config_id = str(uuid.uuid4())
     now_iso = datetime.now(timezone.utc).isoformat()
     await db.execute(
-        "INSERT INTO llm_configs (id, name, model, api_key, base_url, is_active, created_at) VALUES (?, ?, ?, ?, ?, 0, ?)",
-        (config_id, name, model, api_key, base_url, now_iso),
+        "INSERT INTO llm_configs (id, name, provider, model, api_key, base_url, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+        (config_id, name, provider, model, api_key, base_url, now_iso),
     )
     await db.commit()
     return config_id
@@ -878,7 +886,7 @@ async def create_llm_config(name: str, model: str = "", api_key: str = "", base_
 async def update_llm_config(config_id: str, updates: Dict[str, Any]) -> bool:
     """更新指定 LLM 配置的字段。"""
     db = await get_db()
-    allowed = {"name", "model", "api_key", "base_url"}
+    allowed = {"name", "provider", "model", "api_key", "base_url"}
     set_clauses = []
     params = []
     for k, v in updates.items():

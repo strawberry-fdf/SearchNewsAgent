@@ -21,7 +21,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { platform as osPlatform } from "node:os";
-import { createInterface } from "node:readline";
+import { checkbox } from "@inquirer/prompts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -77,29 +77,31 @@ function getVersion() {
   return pkg.version;
 }
 
-const rl = createInterface({ input: process.stdin, output: process.stdout });
-function ask(question) {
-  return new Promise((res) => rl.question(question, res));
-}
-
 // ── 平台检测 ─────────────────────────────────────────────────
-async function resolvePlatform() {
-  if (targetMac) return "mac";
-  if (targetWin) return "win";
-  if (targetLinux) return "linux";
-  if (onlyFrontend || onlyBackend) return detectCurrentPlatform();
+async function resolvePlatforms() {
+  const fromFlags = [];
+  if (targetMac) fromFlags.push("mac");
+  if (targetWin) fromFlags.push("win");
+  if (targetLinux) fromFlags.push("linux");
 
-  // 交互式选择
+  if (fromFlags.length > 0) {
+    return [...new Set(fromFlags)];
+  }
+
+  if (onlyFrontend || onlyBackend) return [detectCurrentPlatform()];
+
   const current = detectCurrentPlatform();
-  console.log(`${c.dim}当前系统: ${platformLabel(current)}${c.reset}\n`);
-  console.log(`  ${c.cyan}1${c.reset}) ${c.bold}mac${c.reset}     ${c.dim}macOS (DMG)${c.reset}`);
-  console.log(`  ${c.cyan}2${c.reset}) ${c.bold}win${c.reset}     ${c.dim}Windows (NSIS Setup)${c.reset}`);
-  console.log(`  ${c.cyan}3${c.reset}) ${c.bold}linux${c.reset}   ${c.dim}Linux (AppImage)${c.reset}`);
-  console.log(`  ${c.cyan}4${c.reset}) ${c.bold}current${c.reset} ${c.dim}当前平台 (${platformLabel(current)})${c.reset}`);
+  const selected = await checkbox({
+    message: `选择目标平台（可多选，空格勾选，回车确认）｜当前系统: ${platformLabel(current)}`,
+    required: true,
+    choices: [
+      { name: "macOS (DMG)", value: "mac", checked: current === "mac" },
+      { name: "Windows (NSIS Setup)", value: "win", checked: current === "win" },
+      { name: "Linux (AppImage)", value: "linux", checked: current === "linux" },
+    ],
+  });
 
-  const choice = await ask(`\n${c.cyan}?${c.reset} 选择目标平台 (1-4, 默认 4): `);
-  const map = { "1": "mac", "2": "win", "3": "linux", "4": current, "": current };
-  return map[choice.trim()] || current;
+  return [...new Set(selected)];
 }
 
 function detectCurrentPlatform() {
@@ -118,20 +120,33 @@ async function main() {
   const version = getVersion();
   console.log(`\n${c.cyan}${c.bold}📦 AgentNews v${version} — 构建流水线${c.reset}\n`);
 
-  const platform = await resolvePlatform();
+  const selectedPlatforms = await resolvePlatforms();
   const hostPlatform = detectCurrentPlatform();
+  const runnablePlatforms = onlyFrontend
+    ? []
+    : selectedPlatforms.filter((p) => p === hostPlatform);
+  const skippedPlatforms = onlyFrontend
+    ? []
+    : selectedPlatforms.filter((p) => p !== hostPlatform);
 
-  if (!onlyFrontend && platform !== hostPlatform) {
-    console.log(`${c.red}❌ 不支持跨平台完整打包${c.reset}`);
-    console.log(`${c.dim}当前主机: ${platformLabel(hostPlatform)} | 目标平台: ${platformLabel(platform)}${c.reset}`);
-    console.log(`${c.dim}原因: 后端 PyInstaller 仅支持目标系统原生构建。${c.reset}`);
-    console.log(`${c.dim}建议: 在对应系统本机执行，或使用 CI 在 macOS/Windows/Linux runner 分别执行 build。${c.reset}\n`);
+  if (!onlyFrontend && runnablePlatforms.length === 0) {
+    console.log(`${c.red}❌ 未选择可在当前主机构建的平台${c.reset}`);
+    console.log(`${c.dim}当前主机: ${platformLabel(hostPlatform)}${c.reset}`);
+    console.log(`${c.dim}说明: 后端 PyInstaller 仅支持目标系统原生构建。${c.reset}`);
     process.exit(1);
   }
 
-  const totalSteps = computeSteps();
+  if (skippedPlatforms.length > 0) {
+    console.log(`${c.yellow}⚠ 已跳过不可跨平台构建目标: ${skippedPlatforms.map(platformLabel).join(", ")}${c.reset}`);
+    console.log(`${c.dim}原因: 后端 PyInstaller 不支持跨平台打包。${c.reset}\n`);
+  }
 
-  console.log(`\n${c.dim}目标平台: ${c.reset}${c.bold}${platformLabel(platform)}${c.reset}`);
+  const totalSteps = computeSteps(runnablePlatforms.length);
+
+  console.log(`\n${c.dim}已选平台: ${c.reset}${c.bold}${selectedPlatforms.map(platformLabel).join(", ")}${c.reset}`);
+  if (!onlyFrontend) {
+    console.log(`${c.dim}执行平台: ${c.reset}${c.bold}${runnablePlatforms.map(platformLabel).join(", ")}${c.reset}`);
+  }
   console.log(`${c.dim}版本号:   ${c.reset}${c.bold}v${version}${c.reset}`);
   if (skipChecks) console.log(`${c.yellow}⚠ 跳过所有质量检查${c.reset}`);
   if (skipTests) console.log(`${c.yellow}⚠ 跳过测试，保留类型检查${c.reset}`);
@@ -195,28 +210,32 @@ async function main() {
 
   // ── Step 5: 后端打包 ──
   if (!onlyFrontend) {
-    step++;
-    header(step, totalSteps, `后端打包 (PyInstaller → ${platformLabel(platform)})`);
-    try {
-      run(`node scripts/build-backend.mjs --${platform}`);
-      console.log(`${c.green}✅ 后端打包完成${c.reset}`);
-    } catch {
-      console.log(`${c.red}❌ 后端打包失败${c.reset}`);
-      process.exit(1);
+    for (const platform of runnablePlatforms) {
+      step++;
+      header(step, totalSteps, `后端打包 (PyInstaller → ${platformLabel(platform)})`);
+      try {
+        run(`node scripts/build-backend.mjs --${platform}`);
+        console.log(`${c.green}✅ 后端打包完成 (${platformLabel(platform)})${c.reset}`);
+      } catch {
+        console.log(`${c.red}❌ 后端打包失败 (${platformLabel(platform)})${c.reset}`);
+        process.exit(1);
+      }
     }
   }
 
   // ── Step 6: Electron 打包 ──
   if (!onlyFrontend && !onlyBackend) {
-    step++;
-    header(step, totalSteps, `Electron 打包 (${platformLabel(platform)})`);
-    try {
-      const platformFlag = { mac: "--mac", win: "--win", linux: "--linux" }[platform];
-      run(`npx electron-builder ${platformFlag}`);
-      console.log(`${c.green}✅ Electron 打包完成${c.reset}`);
-    } catch {
-      console.log(`${c.red}❌ Electron 打包失败${c.reset}`);
-      process.exit(1);
+    for (const platform of runnablePlatforms) {
+      step++;
+      header(step, totalSteps, `Electron 打包 (${platformLabel(platform)})`);
+      try {
+        const platformFlag = { mac: "--mac", win: "--win", linux: "--linux" }[platform];
+        run(`npx electron-builder ${platformFlag}`);
+        console.log(`${c.green}✅ Electron 打包完成 (${platformLabel(platform)})${c.reset}`);
+      } catch {
+        console.log(`${c.red}❌ Electron 打包失败 (${platformLabel(platform)})${c.reset}`);
+        process.exit(1);
+      }
     }
   }
 
@@ -224,23 +243,22 @@ async function main() {
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
   console.log(`\n${c.dim}${"─".repeat(50)}${c.reset}`);
   console.log(`${c.green}${c.bold}🎉 构建完成！${c.reset} ${c.dim}(${elapsed}s)${c.reset}`);
-  console.log(`${c.dim}版本: v${version} | 平台: ${platformLabel(platform)}${c.reset}`);
+  const summaryPlatforms = onlyFrontend ? [hostPlatform] : runnablePlatforms;
+  console.log(`${c.dim}版本: v${version} | 平台: ${summaryPlatforms.map(platformLabel).join(", ")}${c.reset}`);
 
   if (!onlyFrontend && !onlyBackend) {
     console.log(`${c.dim}产物目录: dist/${c.reset}`);
   }
   console.log();
 
-  rl.close();
-
-  function computeSteps() {
+  function computeSteps(platformCount) {
     let n = 0;
     if (!skipChecks) n++; // ts-check
     if (!skipChecks && !skipTests) n++; // frontend test
     if (!skipChecks && !skipTests && !onlyFrontend) n++; // backend test
     if (!onlyBackend) n++; // frontend build
-    if (!onlyFrontend) n++; // backend build
-    if (!onlyFrontend && !onlyBackend) n++; // electron build
+    if (!onlyFrontend) n += platformCount; // backend build
+    if (!onlyFrontend && !onlyBackend) n += platformCount; // electron build
     return n;
   }
 }

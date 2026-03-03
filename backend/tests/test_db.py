@@ -509,10 +509,11 @@ class TestFilterPresets:
 
 class TestLLMConfigs:
     async def test_create_and_list(self, test_db):
-        await db.create_llm_config("GPT-4o", "gpt-4o", "sk-xxx", "https://api.openai.com/v1")
+        await db.create_llm_config("GPT-4o", "openai", "gpt-4o", "sk-xxx", "https://api.openai.com/v1")
         configs = await db.get_llm_configs()
         assert len(configs) == 1
         assert configs[0]["name"] == "GPT-4o"
+        assert configs[0]["provider"] == "openai"
         assert configs[0]["is_active"] is False
 
     async def test_activate_single_mode(self, test_db):
@@ -536,7 +537,7 @@ class TestLLMConfigs:
         assert active is None
 
     async def test_update_config(self, test_db):
-        config_id = await db.create_llm_config("Old", "model-old")
+        config_id = await db.create_llm_config("Old", "openai", "model-old")
         ok = await db.update_llm_config(config_id, {"name": "New", "model": "model-new"})
         assert ok is True
         configs = await db.get_llm_configs()

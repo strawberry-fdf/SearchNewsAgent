@@ -20,6 +20,8 @@ backend/data/
 *.tsbuildinfo
 backend/package-lock.json
 
+docs/*
+
 # Environment
 backend/.env
 .env

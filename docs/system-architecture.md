@@ -485,7 +485,7 @@ npm run dev
 ```bash
 # 确保后端和前端已启动，然后:
 cd AgentNews
-npm run electron:dev
+pnpm dev
 ```
 
 ---

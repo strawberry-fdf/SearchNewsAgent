@@ -25,6 +25,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from backend.storage import db
+from backend.llm.provider_registry import discover_models, get_provider_spec, list_provider_specs
 
 logger = logging.getLogger(__name__)
 
@@ -455,6 +456,7 @@ async def delete_filter_preset(preset_id: str):
 
 class LlmConfigCreate(BaseModel):
     name: str
+    provider: str = "openai"
     model: str = ""
     api_key: str = ""
     base_url: str = ""
@@ -462,9 +464,15 @@ class LlmConfigCreate(BaseModel):
 
 class LlmConfigUpdate(BaseModel):
     name: Optional[str] = None
+    provider: Optional[str] = None
     model: Optional[str] = None
     api_key: Optional[str] = None
     base_url: Optional[str] = None
+
+
+class ProviderModelsRequest(BaseModel):
+    api_key: str = ""
+    base_url: str = ""
 
 
 @router.get("/api/llm-configs")
@@ -480,8 +488,13 @@ async def create_llm_config(body: LlmConfigCreate):
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Name is required")
+    provider = body.provider.strip().lower() if body.provider else "openai"
+    if not get_provider_spec(provider):
+        raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
     config_id = await db.create_llm_config(
-        name=name, model=body.model.strip(),
+        name=name,
+        provider=provider,
+        model=body.model.strip(),
         api_key=body.api_key.strip(), base_url=body.base_url.strip(),
     )
     return {"status": "ok", "id": config_id}
@@ -491,11 +504,34 @@ async def create_llm_config(body: LlmConfigCreate):
 async def update_llm_config(config_id: str, body: LlmConfigUpdate):
     """更新 LLM 配置。"""
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "provider" in updates:
+        updates["provider"] = str(updates["provider"]).strip().lower()
+        if updates["provider"] and not get_provider_spec(updates["provider"]):
+            raise HTTPException(status_code=400, detail=f"Unsupported provider: {updates['provider']}")
     if updates:
         ok = await db.update_llm_config(config_id, updates)
         if not ok:
             raise HTTPException(status_code=404, detail="Config not found")
     return {"status": "ok"}
+
+
+@router.get("/api/llm-providers")
+async def list_llm_providers():
+    """获取支持的 LLM 厂商列表（用于前端下拉展示）。"""
+    return {"items": list_provider_specs()}
+
+
+@router.post("/api/llm-providers/{provider}/models")
+async def discover_provider_models(provider: str, body: ProviderModelsRequest):
+    """根据厂商 + API Key(+可选 base_url) 发现可用模型列表。"""
+    result = await discover_models(
+        provider=provider,
+        api_key=body.api_key,
+        base_url=body.base_url,
+    )
+    if result.get("source") == "unknown":
+        raise HTTPException(status_code=400, detail=result.get("error") or "Unsupported provider")
+    return result
 
 
 @router.post("/api/llm-configs/{config_id}/activate")

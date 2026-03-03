@@ -109,10 +109,12 @@ async def analyse_article(content: str, filter_prompt: str = "") -> Optional[LLM
         active_config = None
 
     if active_config:
+        cfg_provider = (active_config.get("provider") or "openai").strip().lower()
         cfg_model = (active_config.get("model") or "").strip()
         cfg_api_key = (active_config.get("api_key") or "").strip()
         cfg_base_url = (active_config.get("base_url") or "").strip()
     else:
+        cfg_provider = ""
         cfg_model = ""
         cfg_api_key = ""
         cfg_base_url = ""
@@ -147,13 +149,23 @@ async def analyse_article(content: str, filter_prompt: str = "") -> Optional[LLM
 
     try:
         if active_config:
-            # 使用激活的 LLM 配置（统一 OpenAI 兼容模式，支持任意提供商）
-            raw_json = await _call_openai(
-                truncated, system_prompt,
-                api_key=cfg_api_key or settings.OPENAI_API_KEY,
-                base_url=cfg_base_url or settings.OPENAI_BASE_URL,
-                model=cfg_model or settings.OPENAI_MODEL,
-            )
+            # 使用激活的 LLM 配置
+            if cfg_provider == "anthropic":
+                raw_json = await _call_anthropic(
+                    truncated,
+                    system_prompt,
+                    api_key=cfg_api_key or settings.ANTHROPIC_API_KEY,
+                    model=cfg_model or settings.ANTHROPIC_MODEL,
+                )
+            else:
+                # 其他厂商统一按 OpenAI 兼容协议调用
+                raw_json = await _call_openai(
+                    truncated,
+                    system_prompt,
+                    api_key=cfg_api_key or settings.OPENAI_API_KEY,
+                    base_url=cfg_base_url or settings.OPENAI_BASE_URL,
+                    model=cfg_model or settings.OPENAI_MODEL,
+                )
         else:
             # 无激活配置，根据环境变量选择提供商
             provider = settings.LLM_PROVIDER.lower()

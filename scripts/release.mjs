@@ -1,16 +1,17 @@
 #!/usr/bin/env node
 /**
- * release.mjs — 版本发布脚本
+ * release.mjs — UX 优先的版本发布脚本
  *
- * 自动化版本号递增 → 更新 package.json → 生成 CHANGELOG 条目
- * → 提交 + Tag → 可选推送 → 可选打包
+ * 目标：让发布过程“可见、可控、低心智负担”。
+ * 流程：选择版本 → 输入提交信息 → 预览确认 → 版本更新 → 提交/打标/推送
  *
  * 用法:
+ *   node scripts/release.mjs                # 交互式发布（推荐）
  *   node scripts/release.mjs patch          # 1.0.0 → 1.0.1（补丁修复）
  *   node scripts/release.mjs minor          # 1.0.0 → 1.1.0（新功能）
  *   node scripts/release.mjs major          # 1.0.0 → 2.0.0（破坏性变更）
  *   node scripts/release.mjs --version 2.1.0 # 指定精确版本号
- *   node scripts/release.mjs patch --build  # 发布后自动打包当前平台
+ *   node scripts/release.mjs --build        # 发布后自动打包当前平台
  *   node scripts/release.mjs patch --yes --push # 无交互：递增版本 + commit + tag + push
  *   node scripts/release.mjs patch --yes --push --allow-dirty # 包含当前未提交改动一起发布
  *   node scripts/release.mjs patch --dry-run # 预览模式（不实际执行）
@@ -20,14 +21,14 @@ import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createInterface } from "node:readline";
+import { confirm, input, select } from "@inquirer/prompts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const ROOT = resolve(__dirname, "..");
 
 // ── 解析参数 ─────────────────────────────────────────────────
-const argv = process.argv.slice(2);
+const argv = process.argv.slice(2).filter((arg) => arg !== "--");
 const bumpType = argv.find((a) => ["major", "minor", "patch"].includes(a));
 const explicitVersion = argv.includes("--version") ? argv[argv.indexOf("--version") + 1] : null;
 const dryRun = argv.includes("--dry-run");
@@ -57,11 +58,6 @@ function runSilent(cmd) {
   try {
     return execSync(cmd, { cwd: ROOT, encoding: "utf-8", stdio: "pipe" }).trim();
   } catch { return ""; }
-}
-
-const rl = createInterface({ input: process.stdin, output: process.stdout });
-function ask(question) {
-  return new Promise((resolve) => rl.question(question, resolve));
 }
 
 // ── 版本号工具 ────────────────────────────────────────────────
@@ -141,8 +137,11 @@ async function main() {
   const dirty = runSilent("git status --porcelain");
   if (dirty && !dryRun) {
     if (!allowDirty) {
-      const dirtyConfirm = await ask(`${c.yellow}⚠ 工作区有未提交改动，是否将当前改动一并发布？(Y/n) ${c.reset}`);
-      if (dirtyConfirm.toLowerCase() === "n") {
+      const dirtyConfirm = await confirm({
+        message: "检测到未提交改动，是否将当前改动一并纳入本次发布？",
+        default: true,
+      });
+      if (!dirtyConfirm) {
         console.log(`${c.yellow}⚠ 已取消${c.reset}`);
         process.exit(0);
       }
@@ -166,26 +165,39 @@ async function main() {
     // 无交互模式下默认 patch
     newVersion = bumpVersion(currentVersion, "patch");
   } else {
-    console.log(`\n${c.dim}选择版本递增类型:${c.reset}`);
-    console.log(`  ${c.cyan}1${c.reset}) ${c.bold}patch${c.reset}  ${c.dim}${bumpVersion(currentVersion, "patch")}  — 补丁修复${c.reset}`);
-    console.log(`  ${c.cyan}2${c.reset}) ${c.bold}minor${c.reset}  ${c.dim}${bumpVersion(currentVersion, "minor")}  — 新功能${c.reset}`);
-    console.log(`  ${c.cyan}3${c.reset}) ${c.bold}major${c.reset}  ${c.dim}${bumpVersion(currentVersion, "major")}  — 破坏性变更${c.reset}`);
-    const choice = await ask(`\n${c.cyan}?${c.reset} 输入编号 (1-3): `);
-    const types = ["patch", "minor", "major"];
-    const idx = parseInt(choice, 10) - 1;
-    if (idx < 0 || idx > 2) {
-      console.log(`${c.red}✗ 无效选择${c.reset}`);
-      process.exit(1);
-    }
-    newVersion = bumpVersion(currentVersion, types[idx]);
+    const selectedType = await select({
+      message: "选择版本递增类型",
+      choices: [
+        { name: `patch  (${bumpVersion(currentVersion, "patch")})  补丁修复`, value: "patch" },
+        { name: `minor  (${bumpVersion(currentVersion, "minor")})  新功能`, value: "minor" },
+        { name: `major  (${bumpVersion(currentVersion, "major")})  破坏性变更`, value: "major" },
+      ],
+      default: "patch",
+    });
+    newVersion = bumpVersion(currentVersion, selectedType);
   }
 
   console.log(`${c.dim}新版本:${c.reset}   ${c.green}${c.bold}v${newVersion}${c.reset}\n`);
 
+  const defaultCommitMessage = `chore(release): v${newVersion}`;
+  let commitMessage = customCommitMessage || defaultCommitMessage;
+  if (!customCommitMessage && !yesMode) {
+    const inputMessage = await input({
+      message: "输入 commit message（回车使用默认）",
+      default: defaultCommitMessage,
+    });
+    commitMessage = inputMessage.trim() || defaultCommitMessage;
+  }
+
   // 确认
   if (!yesMode) {
-    const confirm = await ask(`${c.cyan}?${c.reset} 确认发布 v${newVersion}？(Y/n) `);
-    if (confirm.toLowerCase() === "n") {
+    console.log(`${c.dim}发布预览: v${currentVersion} -> v${newVersion}${c.reset}`);
+    console.log(`${c.dim}提交信息: ${commitMessage}${c.reset}`);
+    const shouldContinue = await confirm({
+      message: "确认继续发布？",
+      default: true,
+    });
+    if (!shouldContinue) {
       console.log(`${c.yellow}⚠ 已取消${c.reset}`);
       process.exit(0);
     }
@@ -249,7 +261,6 @@ async function main() {
   // ── 3. 提交版本变更 ──
   console.log(`${c.cyan}[3/5]${c.reset} 提交版本变更...`);
   run("git add -A", { silent: true });
-  const commitMessage = customCommitMessage || `chore(release): v${newVersion}`;
   run(`git commit --no-verify -m "${commitMessage.replace(/"/g, '\\"')}"`, { silent: true });
   console.log(`  ${c.green}✓${c.reset} 已提交: ${commitMessage}`);
 
@@ -268,8 +279,10 @@ async function main() {
   } else if (yesMode) {
     shouldPush = true;
   } else {
-    const pushConfirm = await ask(`${c.cyan}?${c.reset} 推送 commit + tag 到远程？(Y/n) `);
-    shouldPush = pushConfirm.toLowerCase() !== "n";
+    shouldPush = await confirm({
+      message: "推送 commit + tag 到远程？",
+      default: true,
+    });
   }
 
   if (shouldPush) {
@@ -285,11 +298,10 @@ async function main() {
   if (autoBuild) {
     console.log(`\n${c.cyan}[bonus]${c.reset} 开始打包当前平台...`);
     const platform = process.platform === "darwin" ? "mac" : process.platform === "win32" ? "win" : "linux";
-    run(`pnpm build:${platform}`, { silent: false });
+    run(`pnpm build -- --${platform}`, { silent: false });
   }
 
   console.log(`\n${c.green}${c.bold}🎉 v${newVersion} 发布完成！${c.reset}\n`);
-  rl.close();
 }
 
 main().catch((err) => {

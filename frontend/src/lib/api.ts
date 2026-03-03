@@ -75,11 +75,31 @@ export interface AppSettings {
 export interface LlmConfig {
   id: string;
   name: string;
+  provider: string;
   model: string;
   api_key: string;
   base_url: string;
   is_active: boolean;
   created_at: string;
+}
+
+export interface LlmProvider {
+  provider: string;
+  label: string;
+  default_base_url: string;
+  docs_url: string;
+  static_models: string[];
+  discovery_style: string;
+  auth_scheme: string;
+}
+
+export interface ProviderModelsResponse {
+  provider: string;
+  models: string[];
+  source: string;
+  default_base_url: string;
+  used_base_url: string;
+  error: string | null;
 }
 
 export interface KeywordRule {
@@ -298,6 +318,7 @@ export async function getLlmConfigs(): Promise<{ items: LlmConfig[] }> {
 
 export async function createLlmConfig(data: {
   name: string;
+  provider: string;
   model: string;
   api_key: string;
   base_url: string;
@@ -310,11 +331,25 @@ export async function createLlmConfig(data: {
 
 export async function updateLlmConfig(
   configId: string,
-  updates: { name?: string; model?: string; api_key?: string; base_url?: string }
+  updates: { name?: string; provider?: string; model?: string; api_key?: string; base_url?: string }
 ): Promise<{ status: string }> {
   return fetchJSON(`/api/llm-configs/${configId}`, {
     method: "PATCH",
     body: JSON.stringify(updates),
+  });
+}
+
+export async function getLlmProviders(): Promise<{ items: LlmProvider[] }> {
+  return fetchJSON("/api/llm-providers");
+}
+
+export async function discoverProviderModels(
+  provider: string,
+  data: { api_key: string; base_url?: string }
+): Promise<ProviderModelsResponse> {
+  return fetchJSON(`/api/llm-providers/${provider}/models`, {
+    method: "POST",
+    body: JSON.stringify(data),
   });
 }
 

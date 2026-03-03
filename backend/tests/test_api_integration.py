@@ -281,7 +281,7 @@ class TestLLMConfigEndpoints:
         """完整的 LLM 配置 CRUD 流程。"""
         # Create
         resp = await api_client.post("/api/llm-configs", json={
-            "name": "GPT-4o", "model": "gpt-4o",
+            "name": "GPT-4o", "provider": "openai", "model": "gpt-4o",
             "api_key": "sk-test", "base_url": "https://api.openai.com/v1",
         })
         assert resp.status_code == 200
@@ -290,6 +290,7 @@ class TestLLMConfigEndpoints:
         # List
         resp = await api_client.get("/api/llm-configs")
         assert len(resp.json()["items"]) == 1
+        assert resp.json()["items"][0]["provider"] == "openai"
 
         # Activate
         resp = await api_client.post(f"/api/llm-configs/{config_id}/activate")
@@ -305,6 +306,27 @@ class TestLLMConfigEndpoints:
 
     async def test_empty_name_rejected(self, api_client, test_db):
         resp = await api_client.post("/api/llm-configs", json={"name": " "})
+        assert resp.status_code == 400
+
+
+class TestLLMProviderEndpoints:
+    async def test_list_providers(self, api_client, test_db):
+        resp = await api_client.get("/api/llm-providers")
+        assert resp.status_code == 200
+        items = resp.json()["items"]
+        assert any(item["provider"] == "openai" for item in items)
+        assert any(item["provider"] == "zhipu" for item in items)
+        assert any(item["provider"] == "minimax" for item in items)
+
+    async def test_discover_provider_models_static_when_no_key(self, api_client, test_db):
+        resp = await api_client.post("/api/llm-providers/zhipu/models", json={"api_key": ""})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["provider"] == "zhipu"
+        assert len(body["models"]) > 0
+
+    async def test_discover_provider_models_unknown_provider(self, api_client, test_db):
+        resp = await api_client.post("/api/llm-providers/unknown/models", json={"api_key": "k"})
         assert resp.status_code == 400
 
 

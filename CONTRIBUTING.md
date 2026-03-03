@@ -70,11 +70,11 @@ pnpm check
 pnpm dev
 
 # 仅前后端（不启动 Electron）
-pnpm dev:no-electron
+pnpm dev -- --no-electron
 
 # 仅前端 / 仅后端
-pnpm dev:frontend
-pnpm dev:backend
+pnpm dev -- --frontend
+pnpm dev -- --backend
 ```
 
 - 后端：http://localhost:8000（FastAPI + Swagger 文档 /docs）
@@ -228,13 +228,13 @@ git commit -m "fix bug"
 pnpm check
 
 # 仅前端测试 (Vitest)
-pnpm check:frontend
+pnpm check -- --frontend
 
 # 仅后端测试 (Pytest)
-pnpm check:backend
+pnpm check -- --backend
 
 # 仅 TypeScript 类型检查
-pnpm check:typecheck
+pnpm check -- --typecheck
 ```
 
 ### 测试覆盖要求
@@ -403,9 +403,7 @@ fix(pipeline): 修复并发抓取时的死锁问题
 发布由维护者执行：
 
 ```bash
-pnpm release:patch   # 补丁发布
-pnpm release:minor   # 次版本发布
-pnpm release:major   # 主版本发布
+pnpm release         # 交互选择 patch/minor/major，并输入 commit message
 ```
 
 该命令会自动：

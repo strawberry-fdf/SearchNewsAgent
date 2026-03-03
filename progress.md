@@ -1,4 +1,14 @@
 ## [Completed]
+- 脚本与包配置清理: `package.json` 移除冗余别名脚本（`dev:*`、`check:*`），保留主入口 `pnpm dev/check/release/build`
+- 无用脚本删除: 已删除 `scripts/commit.mjs`，避免重复提交入口与维护成本
+- 依赖瘦身: 根目录移除未使用的 `concurrently`、`cross-env`，同步更新 `pnpm-lock.yaml`
+- 文档同步清理: README/README_EN/CONTRIBUTING 中旧别名命令更新为主入口参数形式
+- CLI 脚本重写完成（用户体验优先）: `scripts/dev.mjs` / `scripts/check.mjs` / `scripts/release.mjs` 全部改为统一交互风格（选择器 + 输入 + 确认）
+- 发布流程体验增强: `release` 增加发布预览与 commit message 输入，支持 dirty 工作区确认纳入；保持 `--yes --push --allow-dirty --dry-run` 自动化能力
+- 检查流程体验增强: `check` 改为可交互多选检查项，保留 `--frontend/--backend/--typecheck/--test` 兼容参数并支持 CI/`--yes` 无交互全跑
+- 开发流程体验增强: `dev` 改为可交互选择服务，支持 `--dry-run` 预览启动命令并改进子进程退出/清理逻辑
+- Build 命令交互增强: `pnpm build` 从单选平台升级为多选平台（基于 `@inquirer/prompts` checkbox），支持一次勾选多个端构建目标
+- Build 多平台容错优化: 对当前主机不可执行的跨平台目标改为“提示并跳过”，仅在无可执行目标时失败
 - 发布命令收敛: `package.json` 对外统一为单入口 `pnpm ship`（交互选择版本），避免多条 release 命令分散
 - 单命令发布验证: `pnpm ship -- --dry-run` 已跑通，确认一次执行可覆盖 add/commit/tag/push 全链路
 - 一条命令全链路发版: 新增 `pnpm release:all`（及 minor/major 变体），可直接执行当前改动的 add + commit + tag + push，并触发 CI Release
@@ -42,6 +52,7 @@
 
 - 后端测试全覆盖: 283 个测试用例全部通过，覆盖 12 个模块（dedup/models/rules_engine/extractor/feishu/rss_fetcher/web_scraper/db/pipeline/api/cross_scenarios），含单元测试+集成测试+全场景交叉复杂测试
 - 前端测试全覆盖: 223 个测试用例全部通过（13 个测试文件），覆盖 api/ScoreBadge/ThemeProvider/Sidebar/ArticleCard/ArticleFeed/SourcePanel/SourceManager/StatsPanel/Settings/UpdateToast/Home(page) + 集成测试；测试框架 Vitest 4.0.18 + @testing-library/react + jest-dom + user-event + jsdom
+- LLM 厂商注册表 + Provider-aware 配置 UI: 后端 13 个厂商注册（含 GLM-5/MiniMax-M2.5/Gemini-2.5 等最新模型）+ API 模型发现端点；前端 Settings.tsx 新建/编辑配置弹窗重构为厂商感知模式（厂商下拉→自动填充 Base URL→API Key→发现模型按钮→模型快捷标签→API 文档链接）；后端 286 测试全通过、前端 build 成功
 - 工程化规范体系: Husky pre-commit hook（tsc类型检查+前端223测试+后端283测试）+ commit-msg hook（commitlint Conventional Commits 规范）；新增 5 个 Node.js 脚本: dev.mjs（开发启动）、commit.mjs（交互式规范提交）、release.mjs（版本发布+CHANGELOG+Tag）、check.mjs（手动质量检查）、build.mjs（统一构建流水线：质量检查→前端构建→后端打包→Electron打包）；语义化版本控制 major/minor/patch
 - README 重写 + CONTRIBUTING.md: README 全面更新（修正技术栈/架构图/项目结构/快速开始/脚本命令速查表/桌面应用说明/去除过时 MongoDB/Docker 引用）；新增 CONTRIBUTING.md 开源贡献指南（环境搭建/提交规范/测试要求/代码规范/PR 流程/版本发布/FAQ）
 - 英文 README + 截图: 新增 README_EN.md 中英切换；Playwright 截取暗色主题截图嵌入两份 README
@@ -66,13 +77,18 @@
 - 无
 
 ## [Next Steps]
-1. 使用 `pnpm ship` 执行一次真实 patch 发版，验证 add/commit/tag/push/Release 全链路
+1. 使用 `pnpm release` 执行一次真实 patch 发版，验证交互式 commit message 与发布确认流程
 2. 验证 Release 资产仅保留 3 个安装包（`.dmg` / `-setup.exe` / `.AppImage`）
+
+## [Key Decisions / Context]
+- LLM 厂商注册表: 13 个厂商（openai/anthropic/deepseek/zhipu/minimax/xai/mistral/groq/openrouter/dashscope/baichuan/gemini/ollama），支持厂商切换自动填充 Base URL + 静态模型列表 + API 模型发现
+- 模型发现策略: discover_models 返回全部动态模型（不再限制 2 个），仅在无 API Key 时回退 static_models
+- 前端 LLM 配置交互: 选厂商 → 自动填充 Base URL → 输入 API Key → 发现/选择模型 → 保存；像 opencode 一样简单
 3. Apple Developer 证书签名（消除 macOS "已损坏" 弹窗）
 
 ## [Key Decisions / Context]
 - **提交规范**: 使用 Conventional Commits (`feat:/fix:/docs:/style:/refactor:/perf:/test:/build:/ci:/chore:/revert:`)，Husky + commitlint 自动校验；`pnpm commit` 交互式引导提交
-- **版本发布**: 语义化版本 (SemVer)，`pnpm release:patch/minor/major` 自动递增版本号、更新 CHANGELOG.md、创建 Git Tag、同步前后端 package.json 版本
+- **版本发布**: 语义化版本 (SemVer)，统一使用 `pnpm release` 交互式完成版本递增、CHANGELOG、commit、tag、push
 - **pre-commit 检查**: 每次提交前自动执行 TypeScript 类型检查 + 前端 Vitest 223 测试 + 后端 Pytest 283 测试，任一失败则阻止提交
 - SourcePanel 展示全部信源（不再过滤 enabled），禁用信源以半透明+灰色圆点区分，启用信源显示绿色圆点
 - 编辑模式：点击铅笔图标进入，支持内联重命名（信源/分类）、置顶（Pin）、取消订阅（确认弹窗）；分类支持独立置顶（Pin 按钮），信源置顶按 pin_order 排序
