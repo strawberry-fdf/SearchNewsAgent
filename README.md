@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="frontend/public/logo.png" alt="AgentNews Logo" width="120" />
+
 **[English](README_EN.md) | 简体中文**
 
 # AgentNews
