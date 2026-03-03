@@ -76,9 +76,6 @@ dmg:
 # ── Windows 配置 ──────────────────────────────────────────────
 win:
   target:
-    - target: nsis
-      arch:
-        - x64
     - target: portable
       arch:
         - x64
