@@ -1,4 +1,5 @@
 ## [Completed]
+- Windows CI 打包策略调整: 为规避 NSIS 对 `build/icon.ico` 的强依赖，Windows 产物暂改为仅构建 `portable` 目标，避免发版流水线中断
 - CI 打包修复: 移除 electron-builder 对 `build/icon.*` 与 `build/tray-icon.png` 的硬依赖，避免 CI 因缺失本地图标资源导致 Windows/macOS/Linux 打包中断
 - Patch 发版验证: 已在 main 成功发布并推送 `v1.0.5`，GitHub Actions `Build & Release` 已被新 tag 正常触发
 - CI 可见性修复: `.gitignore` 原先忽略整个 `.github` 导致 workflow 未入库；已放开 `.github/workflows/*.yml` 并将 `release.yml` 提交到 main
