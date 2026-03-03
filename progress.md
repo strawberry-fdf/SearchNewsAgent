@@ -1,4 +1,5 @@
 ## [Completed]
+- 分支同步与提交流程完成: 已拉取远端 main 合并到 dev，解决 progress.md 冲突后推送分支并创建 PR #2（dev -> main）
 - 设置页 UI 精简: LLM 配置和筛选规则区块默认只展示激活项，非激活项折叠隐藏（"展开 其他配置/未激活规则"），移除冗余提示横幅和空状态文本
 - 大模型筛选规则唯一性执行: 当用户定义了自定义筛选预设且激活时，Pipeline 绕过硬编码 4 步 engine 规则，仅以 LLM 输出的 model_selected 作为唯一筛选标准
 - 收藏模块信源计数修复: SourcePanel 在收藏模式下传 starred=true 只统计收藏文章数；星标切换时通过 refreshKey 机制实时刷新信源计数
