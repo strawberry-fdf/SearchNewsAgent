@@ -1,4 +1,5 @@
 ## [Completed]
+- CI 可见性修复: `.gitignore` 原先忽略整个 `.github` 导致 workflow 未入库；已放开 `.github/workflows/*.yml` 并将 `release.yml` 提交到 main
 - Patch 发版推进: main 分支执行 patch 时 `v1.0.3` 因历史标签冲突，已顺延成功发布并推送 `v1.0.4`（commit + tag）
 - 分支同步与提交流程完成: 已拉取远端 main 合并到 dev，解决 progress.md 冲突后推送分支并创建 PR #2（dev -> main）
 - 设置页 UI 精简: LLM 配置和筛选规则区块默认只展示激活项，非激活项折叠隐藏（"展开 其他配置/未激活规则"），移除冗余提示横幅和空状态文本
