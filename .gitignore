@@ -51,7 +51,9 @@ Thumbs.db
 
 # Logs
 *.log
-/.github
+/.github/*
+!/.github/workflows/
+!/.github/workflows/*.yml
 
 # Claude Code skills (本地 AI 辅助配置)
 .claude
