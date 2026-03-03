@@ -1,3 +1,11 @@
+## [1.0.12] - 2026-03-03
+
+### ✨ 新功能
+- add app icons for all platforms (macOS/Windows/Linux)
+
+### 📝 文档
+- update progress.md
+
 ## [1.0.11] - 2026-03-03
 
 ### 🐛 修复
