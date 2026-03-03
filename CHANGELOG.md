@@ -1,3 +1,12 @@
+## [1.0.5] - 2026-03-03
+
+### 🔧 CI
+- 修复 .github/workflows 被忽略导致 Actions 不生效
+
+### 🔩 杂项
+- 更新 progress.md 记录 Actions 可见性修复
+- 更新 progress.md 记录 v1.0.4 发版
+
 ## [1.0.4] - 2026-03-03
 
 ### 📦 构建
