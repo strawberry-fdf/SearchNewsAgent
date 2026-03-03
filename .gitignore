@@ -32,6 +32,10 @@ backend/.env
 out/
 dist/
 build/
+# 保留 build/ 下的图标文件（electron-builder 打包需要）
+!build/icon.icns
+!build/icon.ico
+!build/icon.png
 
 # Electron / PyInstaller 打包临时文件
 pyinstaller_dist/
