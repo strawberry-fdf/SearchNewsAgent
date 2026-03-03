@@ -1,4 +1,5 @@
 ## [Completed]
+- Patch 发版已完成: 已执行 release 流程并推送 `v1.0.3`（commit + tag）到远端，触发 GitHub Actions 发布流水线
 - README 截图已更新: 启动前端后通过 Playwright 自动重拍并覆盖 `docs/images/screenshot-dark.png`
 - README 视觉优化: 已将项目 logo 放置到 `README.md` 顶部居中位置（使用 frontend/public/logo.png）
 - 分支同步与提交流程完成: 已拉取远端 main 合并到 dev，解决 progress.md 冲突后推送分支并创建 PR #2（dev -> main）
