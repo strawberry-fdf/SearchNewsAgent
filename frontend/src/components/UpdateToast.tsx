@@ -15,6 +15,7 @@ interface UpdateResult {
   version?: string;
   currentVersion?: string;
   downloadUrl?: string;
+  updateMode?: "in-app" | "external";
   message?: string;
   manual?: boolean;
 }
@@ -22,6 +23,7 @@ interface UpdateResult {
 export default function UpdateToast() {
   const [toast, setToast] = useState<UpdateResult | null>(null);
   const [visible, setVisible] = useState(false);
+  const [updating, setUpdating] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearTimer = useCallback(() => {
@@ -54,15 +56,37 @@ export default function UpdateToast() {
     api.onUpdateCheckResult((data) => {
       const result = data as UpdateResult;
       setToast(result);
+      if (result.type !== "update-available") {
+        setUpdating(false);
+      }
       setVisible(true);
       autoHide(result);
     });
   }, [autoHide]);
 
-  const handleDownload = () => {
-    if (toast?.downloadUrl) {
-      window.electronAPI?.openExternal?.(toast.downloadUrl);
+  const handleDownload = async () => {
+    const api = window.electronAPI;
+    if (!api || !toast) return;
+
+    const isInAppUpdate =
+      toast.updateMode === "in-app" ||
+      (api.platform === "win32" || api.platform === "linux");
+
+    if (isInAppUpdate && api.startUpdateInstallation) {
+      setUpdating(true);
+      const res = await api.startUpdateInstallation();
+      if (res?.status === "error") {
+        setUpdating(false);
+        setToast({ type: "error", message: res.message || "更新启动失败" });
+      }
+      if (res?.status === "unsupported") {
+        setUpdating(false);
+        setToast({ type: "error", message: "当前平台不支持应用内静默更新" });
+      }
+      return;
     }
+
+    setToast({ type: "error", message: "当前环境未启用应用内更新能力" });
   };
 
   if (!toast) return null;
@@ -103,9 +127,10 @@ export default function UpdateToast() {
         {toast.type === "update-available" && (
           <button
             onClick={handleDownload}
+            disabled={updating}
             className="shrink-0 px-3 py-1 rounded-full bg-dark-accent text-black text-xs font-medium hover:bg-dark-accent/80 transition-colors"
           >
-            更新
+            {updating ? "更新中…" : "更新"}
           </button>
         )}
 

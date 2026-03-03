@@ -16,6 +16,7 @@ function createElectronAPIMock(isElectron = true) {
     platform: "darwin",
     version: "1.0.0",
     checkForUpdates: vi.fn(),
+    startUpdateInstallation: vi.fn(async () => ({ status: "started" })),
     openExternal: vi.fn(),
     onUpdateCheckResult: vi.fn((cb: (data: unknown) => void) => {
       updateCallback = cb;
@@ -102,7 +103,7 @@ describe("UpdateToast — 有更新可用", () => {
     expect(screen.getByText("v2.0.0 新版本可用")).toBeInTheDocument();
   });
 
-  it("点击「更新」调用 openExternal", async () => {
+  it("macOS 平台点击「更新」显示应用内更新不可用提示", async () => {
     const mock = createElectronAPIMock();
     Object.defineProperty(window, "electronAPI", {
       writable: true,
@@ -123,7 +124,65 @@ describe("UpdateToast — 有更新可用", () => {
     await waitFor(() => expect(screen.getByText("更新")).toBeInTheDocument());
 
     await user.click(screen.getByText("更新"));
-    expect(mock.openExternal).toHaveBeenCalledWith("https://example.com/download");
+    await waitFor(() => {
+      expect(screen.getByText("当前环境未启用应用内更新能力")).toBeInTheDocument();
+    });
+    expect(mock.openExternal).not.toHaveBeenCalled();
+  });
+
+  it("Windows 平台点击「更新」调用 startUpdateInstallation", async () => {
+    const mock = createElectronAPIMock();
+    mock.platform = "win32";
+    Object.defineProperty(window, "electronAPI", {
+      writable: true,
+      value: mock,
+    });
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<UpdateToast />);
+
+    act(() => {
+      updateCallback?.({
+        type: "update-available",
+        version: "2.0.0",
+        updateMode: "in-app",
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText("更新")).toBeInTheDocument());
+
+    await user.click(screen.getByText("更新"));
+    expect(mock.startUpdateInstallation).toHaveBeenCalledTimes(1);
+    expect(mock.openExternal).not.toHaveBeenCalled();
+  });
+
+  it("Windows 平台不支持应用内更新时显示错误，不跳转外链", async () => {
+    const mock = createElectronAPIMock();
+    mock.platform = "win32";
+    mock.startUpdateInstallation = vi.fn(async () => ({ status: "unsupported" }));
+    Object.defineProperty(window, "electronAPI", {
+      writable: true,
+      value: mock,
+    });
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<UpdateToast />);
+
+    act(() => {
+      updateCallback?.({
+        type: "update-available",
+        version: "2.0.0",
+        updateMode: "in-app",
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText("更新")).toBeInTheDocument());
+    await user.click(screen.getByText("更新"));
+
+    await waitFor(() => {
+      expect(screen.getByText("当前平台不支持应用内静默更新")).toBeInTheDocument();
+    });
+    expect(mock.openExternal).not.toHaveBeenCalled();
   });
 });
 

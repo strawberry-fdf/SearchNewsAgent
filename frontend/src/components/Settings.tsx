@@ -105,10 +105,11 @@ declare global {
       platform: string;
       version: string;
       checkForUpdates: () => Promise<{ status: string; version?: string; message?: string }>;
+      startUpdateInstallation?: () => Promise<{ status: string; message?: string }>;
       openExternal: (url: string) => void;
       getAutoLaunch: () => Promise<{ enabled: boolean }>;
       setAutoLaunch: (enabled: boolean) => Promise<{ enabled: boolean }>;
-      onUpdateCheckResult: (cb: (data: { type: string; version?: string; currentVersion?: string; downloadUrl?: string; message?: string; manual?: boolean }) => void) => void;
+      onUpdateCheckResult: (cb: (data: { type: string; version?: string; currentVersion?: string; downloadUrl?: string; updateMode?: string; message?: string; manual?: boolean }) => void) => void;
       onUpdateProgress: (cb: (data: { percent: number }) => void) => void;
       onUpdateDownloading: (cb: (data: { version: string }) => void) => void;
     };

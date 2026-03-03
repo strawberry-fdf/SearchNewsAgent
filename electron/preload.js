@@ -22,6 +22,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   /** 手动触发更新检查 */
   checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
 
+  /** 启动应用内更新下载并安装（Win/Linux） */
+  startUpdateInstallation: () => ipcRenderer.invoke("start-update-installation"),
+
   /** 监听更新检查结果（前端 Toast 展示） */
   onUpdateCheckResult: (callback) => {
     ipcRenderer.on("update-check-result", (_event, data) => callback(data));

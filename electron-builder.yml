@@ -85,10 +85,19 @@ dmg:
 # ── Windows 配置 ──────────────────────────────────────────────
 win:
   target:
+    - target: nsis
+      arch:
+        - x64
     - target: portable
       arch:
         - x64
   artifactName: "${productName}-${version}-win-${arch}.${ext}"
+
+nsis:
+  artifactName: "${productName}-${version}-setup.${ext}"
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: false
 
 portable:
   artifactName: "${productName}-${version}-portable.${ext}"

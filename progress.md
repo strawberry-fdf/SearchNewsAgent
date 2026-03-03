@@ -1,4 +1,6 @@
 ## [Completed]
+- 更新交互策略收敛: 前端“更新”按钮去除 Release 外链兜底，统一改为应用内更新通道（Win/Linux 静默更新下载并自动安装重启）；不可用时仅提示错误不跳转
+- Win/Linux 静默更新闭环: 更新按钮改为应用内更新（electron-updater），点击后后台下载并在下载完成后自动静默安装 + 重启；macOS 保持跳转 GitHub Release；同步新增 preload IPC 与前端 UpdateToast 平台分流逻辑及测试覆盖
 - 自动更新调试开关: electron/main.js 将定期检查间隔临时改为 1 分钟（保留 4 小时配置为注释，便于测试后恢复）
 - CI 三平台构建修复 (v1.0.7): ①拆分单一构建为前端/后端/Electron 三步便于定位 ②添加 --publish=never 阻止 electron-builder CI 自动发布（无 GH_TOKEN 致认证失败为主因）③CSC_IDENTITY_AUTO_DISCOVERY=false 跳过 macOS 签名 ④排除 openai.helpers 模块 ⑤移除未用 NSIS 配置段
 - Windows CI 打包策略调整: 为规避 NSIS 对 `build/icon.ico` 的强依赖，Windows 产物暂改为仅构建 `portable` 目标，避免发版流水线中断

@@ -24,11 +24,14 @@ const BACKEND_PORT = 8000;
 const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 const HEALTH_CHECK_URL = `${BACKEND_URL}/api/stats`;
 const BACKEND_STARTUP_TIMEOUT = 60_000; // 60 秒超时
+const SUPPORTS_IN_APP_UPDATE = process.platform === "win32" || process.platform === "linux";
 
 let backendProcess = null;
 let mainWindow = null;
 let tray = null;
 let isQuitting = false;
+let isUpdateDownloading = false;
+let isManualUpdaterCheck = false;
 
 // ─── 日志辅助 ────────────────────────────────────────────────
 function log(msg) {
@@ -392,7 +395,7 @@ function buildAppMenu() {
         {
           label: "检查更新...",
           click: () => {
-            checkGitHubRelease(true);
+            triggerManualUpdateCheck();
           },
         },
         { type: "separator" },
@@ -497,6 +500,37 @@ const UPDATE_MAX_RETRIES = 2;             // 最大重试次数
 const UPDATE_RETRY_DELAY = 5_000;         // 重试间隔 (5 秒)
 const GITHUB_API_URL = "https://api.github.com/repos/strawberry-fdf/SearchNewsAgent/releases/latest";
 
+/** 向渲染进程发送更新检查结果 */
+function sendUpdateResult(payload, manual = false) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("update-check-result", {
+      ...payload,
+      currentVersion: app.getVersion(),
+      manual,
+    });
+  }
+}
+
+/** 手动检查更新：Win/Linux 走 electron-updater，macOS 走 GitHub Release */
+function triggerManualUpdateCheck() {
+  if (isDev) {
+    sendUpdateResult({ type: "error", message: "开发模式下不支持更新检查" }, true);
+    return;
+  }
+
+  if (SUPPORTS_IN_APP_UPDATE) {
+    isManualUpdaterCheck = true;
+    autoUpdater.checkForUpdates().catch((err) => {
+      isManualUpdaterCheck = false;
+      log(`检查更新失败: ${err.message}`);
+      sendUpdateResult({ type: "error", message: "检查更新失败，请稍后重试" }, true);
+    });
+    return;
+  }
+
+  checkGitHubRelease(true);
+}
+
 /**
  * 初始化自动更新（仅生产模式）。
  * 在主窗口加载完成后调用。
@@ -511,23 +545,26 @@ const GITHUB_API_URL = "https://api.github.com/repos/strawberry-fdf/SearchNewsAg
  * - 自动检查失败静默跳过，手动检查失败显示提示
  */
 function setupAutoUpdater() {
-  // 延迟首次检查，避免影响启动速度
+  if (isDev) {
+    log("开发模式：跳过自动更新初始化");
+    return;
+  }
+
+  if (SUPPORTS_IN_APP_UPDATE) {
+    setupElectronUpdater();
+    return;
+  }
+
+  // macOS（未签名）走 GitHub Releases 页面下载
   setTimeout(() => checkGitHubRelease(false), UPDATE_CHECK_DELAY);
-
-  // 定期检查（当前 1 分钟，测试用）
   setInterval(() => checkGitHubRelease(false), UPDATE_CHECK_INTERVAL);
-
-  // TODO: 接入 CI/CD 后，Windows/Linux 可启用 electron-updater:
-  // if (process.platform !== "darwin") {
-  //   setupElectronUpdater();
-  // }
 }
 
 /**
  * 使用 electron-updater 实现 Windows/Linux 自动更新。
  */
 function setupElectronUpdater() {
-  // 不自动下载，先通知用户
+  // 用户点击“更新”后再下载，实现可控静默更新
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
@@ -537,31 +574,20 @@ function setupElectronUpdater() {
 
   autoUpdater.on("update-available", (info) => {
     log(`发现新版本: v${info.version}`);
-    dialog
-      .showMessageBox(mainWindow, {
-        type: "info",
-        title: "发现新版本",
-        message: `新版本 v${info.version} 已发布`,
-        detail: `当前版本: v${app.getVersion()}\n\n是否立即下载更新？`,
-        buttons: ["立即下载", "稍后提醒"],
-        defaultId: 0,
-        cancelId: 1,
-      })
-      .then(({ response }) => {
-        if (response === 0) {
-          autoUpdater.downloadUpdate();
-          // 通知渲染进程开始下载
-          if (mainWindow) {
-            mainWindow.webContents.send("update-downloading", {
-              version: info.version,
-            });
-          }
-        }
-      });
+    sendUpdateResult({
+      type: "update-available",
+      version: info.version,
+      updateMode: "in-app",
+    }, isManualUpdaterCheck);
+    isManualUpdaterCheck = false;
   });
 
-  autoUpdater.on("update-not-available", () => {
+  autoUpdater.on("update-not-available", (info) => {
     log("当前已是最新版本");
+    if (isManualUpdaterCheck) {
+      sendUpdateResult({ type: "up-to-date", version: info?.version }, true);
+      isManualUpdaterCheck = false;
+    }
   });
 
   autoUpdater.on("download-progress", (progress) => {
@@ -576,26 +602,23 @@ function setupElectronUpdater() {
   });
 
   autoUpdater.on("update-downloaded", (info) => {
-    log(`更新已下载: v${info.version}，准备安装`);
-    dialog
-      .showMessageBox(mainWindow, {
-        type: "info",
-        title: "更新就绪",
-        message: "更新已下载完成",
-        detail: `新版本 v${info.version} 已准备就绪，重启应用即可完成更新。`,
-        buttons: ["立即重启", "稍后重启"],
-        defaultId: 0,
-        cancelId: 1,
-      })
-      .then(({ response }) => {
-        if (response === 0) {
-          autoUpdater.quitAndInstall();
-        }
-      });
+    log(`更新已下载: v${info.version}，开始静默安装并重启`);
+    isUpdateDownloading = false;
+    try {
+      autoUpdater.quitAndInstall(true, true);
+    } catch (err) {
+      log(`执行安装失败: ${err.message}`);
+      sendUpdateResult({ type: "error", message: "安装更新失败，请稍后重试" }, true);
+    }
   });
 
   autoUpdater.on("error", (err) => {
+    isUpdateDownloading = false;
     log(`自动更新出错: ${err.message}`);
+    if (isManualUpdaterCheck) {
+      sendUpdateResult({ type: "error", message: "自动更新失败，请稍后重试" }, true);
+      isManualUpdaterCheck = false;
+    }
   });
 
   // 延迟 5 秒后首次检查，避免影响启动速度
@@ -603,7 +626,13 @@ function setupElectronUpdater() {
     autoUpdater.checkForUpdates().catch((err) => {
       log(`检查更新失败: ${err.message}`);
     });
-  }, 5000);
+  }, UPDATE_CHECK_DELAY);
+
+  setInterval(() => {
+    autoUpdater.checkForUpdates().catch((err) => {
+      log(`定期检查更新失败: ${err.message}`);
+    });
+  }, UPDATE_CHECK_INTERVAL);
 }
 
 /**
@@ -621,17 +650,6 @@ function setupElectronUpdater() {
 function checkGitHubRelease(manual = false, retryCount = 0) {
   const currentVersion = app.getVersion();
 
-  /** 向渲染进程发送更新检查结果 */
-  const sendResult = (payload) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("update-check-result", {
-        ...payload,
-        currentVersion,
-        manual,
-      });
-    }
-  };
-
   /** 处理可重试的失败 */
   const handleRetryableError = (errorMsg) => {
     if (retryCount < UPDATE_MAX_RETRIES) {
@@ -640,7 +658,7 @@ function checkGitHubRelease(manual = false, retryCount = 0) {
     } else {
       log(`更新检查最终失败 (已重试 ${UPDATE_MAX_RETRIES} 次): ${errorMsg}`);
       if (manual) {
-        sendResult({ type: "error", message: `网络连接失败，请检查网络后重试` });
+        sendUpdateResult({ type: "error", message: `网络连接失败，请检查网络后重试` }, true);
       }
     }
   };
@@ -672,7 +690,7 @@ function checkGitHubRelease(manual = false, retryCount = 0) {
             // 仓库尚无 Release，属于正常状态
             log("尚无 GitHub Release，跳过更新检查");
             if (manual) {
-              sendResult({ type: "up-to-date" });
+              sendUpdateResult({ type: "up-to-date" }, true);
             }
             return;
           }
@@ -685,7 +703,7 @@ function checkGitHubRelease(manual = false, retryCount = 0) {
           if (res.statusCode !== 200) {
             log(`GitHub API 返回 ${res.statusCode}，跳过更新检查`);
             if (manual) {
-              sendResult({ type: "error", message: `服务器返回 ${res.statusCode}，请稍后重试` });
+              sendUpdateResult({ type: "error", message: `服务器返回 ${res.statusCode}，请稍后重试` }, true);
             }
             return;
           }
@@ -696,21 +714,22 @@ function checkGitHubRelease(manual = false, retryCount = 0) {
 
           if (isNewerVersion(latestVersion, currentVersion)) {
             log(`发现新版本 v${latestVersion} (当前 v${currentVersion})`);
-            sendResult({
+            sendUpdateResult({
               type: "update-available",
               version: latestVersion,
               downloadUrl: release.html_url,
-            });
+              updateMode: "external",
+            }, manual);
           } else {
             log(`当前已是最新版本 (v${currentVersion})`);
             if (manual) {
-              sendResult({ type: "up-to-date" });
+              sendUpdateResult({ type: "up-to-date" }, true);
             }
           }
         } catch (err) {
           log(`解析 GitHub Release 响应失败: ${err.message}`);
           if (manual) {
-            sendResult({ type: "error", message: "解析服务器响应失败" });
+            sendUpdateResult({ type: "error", message: "解析服务器响应失败" }, true);
           }
         }
       });
@@ -731,7 +750,7 @@ function checkGitHubRelease(manual = false, retryCount = 0) {
     // net 模块在极端情况下可能抛出同步异常
     log(`更新检查异常: ${err.message}`);
     if (manual) {
-      sendResult({ type: "error", message: "检查更新时发生错误" });
+      sendUpdateResult({ type: "error", message: "检查更新时发生错误" }, true);
     }
   }
 }
@@ -757,8 +776,33 @@ function isNewerVersion(latest, current) {
 
 // ─── IPC: 渲染进程手动触发更新检查 ──────────────────────────
 ipcMain.handle("check-for-updates", async () => {
-  checkGitHubRelease(true);
+  triggerManualUpdateCheck();
   return { status: "checking" };
+});
+
+// ─── IPC: 渲染进程触发下载并安装更新（Win/Linux）──────────
+ipcMain.handle("start-update-installation", async () => {
+  if (!SUPPORTS_IN_APP_UPDATE) {
+    return { status: "unsupported", message: "当前平台不支持应用内静默更新" };
+  }
+  if (isDev) {
+    return { status: "dev", message: "开发模式不支持更新安装" };
+  }
+  if (isUpdateDownloading) {
+    return { status: "downloading" };
+  }
+
+  try {
+    isUpdateDownloading = true;
+    sendUpdateResult({ type: "checking", message: "正在下载更新包…" }, true);
+    await autoUpdater.downloadUpdate();
+    return { status: "started" };
+  } catch (err) {
+    isUpdateDownloading = false;
+    log(`开始下载更新失败: ${err.message}`);
+    sendUpdateResult({ type: "error", message: "启动更新下载失败，请稍后重试" }, true);
+    return { status: "error", message: "启动更新下载失败" };
+  }
 });
 
 // ─── IPC: 渲染进程请求打开外部链接 ─────────────────────────
