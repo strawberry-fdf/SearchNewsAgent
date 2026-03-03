@@ -42,6 +42,15 @@ extraResources:
   # 默认环境变量模板（首次启动时复制到用户数据目录）
   - from: "build/default.env"
     to: "default.env"
+  # 托盘图标资源
+  - from: "build/tray-icon.png"
+    to: "tray-icon.png"
+  - from: "build/tray-iconTemplate.png"
+    to: "tray-iconTemplate.png"
+  - from: "build/tray-iconTemplate@2x.png"
+    to: "tray-iconTemplate@2x.png"
+  - from: "build/icon.png"
+    to: "icon.png"
 
 # ── ASAR 打包 ────────────────────────────────────────────────
 asar: true

@@ -192,6 +192,9 @@ function waitForBackend(timeoutMs = BACKEND_STARTUP_TIMEOUT) {
  * 创建应用主窗口。
  */
 function createMainWindow() {
+  // Windows/Linux 需要显式设置窗口图标（macOS 使用 app bundle 中的 icns）
+  const windowIconPath = getIconPath("icon.png");
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -200,6 +203,7 @@ function createMainWindow() {
     title: "AgentNews - AI 智能资讯精选",
     show: false, // 先隐藏，加载完成后显示
     backgroundColor: "#1a1a2e",
+    icon: fs.existsSync(windowIconPath) ? windowIconPath : undefined,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       nodeIntegration: false,
@@ -253,33 +257,52 @@ function createMainWindow() {
 }
 
 /**
+ * 获取图标文件路径的辅助函数。
+ * 开发模式: build/ 目录
+ * 生产模式: process.resourcesPath 目录
+ */
+function getIconPath(filename) {
+  if (isDev) {
+    return path.join(__dirname, "..", "build", filename);
+  }
+  return path.join(process.resourcesPath, filename);
+}
+
+/**
  * 创建系统托盘图标及右键菜单。
  */
 function createTray() {
-  // 托盘图标路径：优先使用 build 目录下的 tray-icon.png，否则回退到通用 icon.png
-  let trayIconPath;
-  if (isDev) {
-    trayIconPath =
-      fs.existsSync(path.join(__dirname, "..", "build", "tray-icon.png"))
-        ? path.join(__dirname, "..", "build", "tray-icon.png")
-        : path.join(__dirname, "..", "build", "icon.png");
-  } else {
-    trayIconPath =
-      fs.existsSync(path.join(process.resourcesPath, "tray-icon.png"))
-        ? path.join(process.resourcesPath, "tray-icon.png")
-        : path.join(__dirname, "..", "build", "icon.png");
-  }
-
-  // 如果图标文件不存在，创建一个 16x16 的空白图标
   let trayImage;
-  if (fs.existsSync(trayIconPath)) {
-    trayImage = nativeImage.createFromPath(trayIconPath);
-    // macOS 托盘图标推荐 16x16，自动缩放
-    if (process.platform === "darwin") {
-      trayImage = trayImage.resize({ width: 16, height: 16 });
+
+  if (process.platform === "darwin") {
+    // macOS: 优先使用 Template 图标（系统自动适配亮色/暗色菜单栏）
+    const templatePath = getIconPath("tray-iconTemplate.png");
+    const template2xPath = getIconPath("tray-iconTemplate@2x.png");
+    if (fs.existsSync(templatePath)) {
+      trayImage = nativeImage.createFromPath(templatePath);
+      trayImage.setTemplateImage(true);
+    } else {
+      // 回退到通用 tray-icon.png
+      const fallback = getIconPath("tray-icon.png");
+      if (fs.existsSync(fallback)) {
+        trayImage = nativeImage.createFromPath(fallback);
+        trayImage = trayImage.resize({ width: 16, height: 16 });
+      }
     }
   } else {
-    // 生成一个简单的空白图标作为后备
+    // Windows / Linux: 使用 tray-icon.png，回退到 icon.png
+    const candidates = ["tray-icon.png", "icon.png"];
+    for (const name of candidates) {
+      const p = getIconPath(name);
+      if (fs.existsSync(p)) {
+        trayImage = nativeImage.createFromPath(p);
+        break;
+      }
+    }
+  }
+
+  // 最终兜底：生成空白图标
+  if (!trayImage || trayImage.isEmpty()) {
     trayImage = nativeImage.createEmpty();
   }
 

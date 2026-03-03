@@ -27,6 +27,7 @@
 - 修复缓存统计不一致问题: 信源估算字节数扩展为包含所有文本字段（raw_html/clean_markdown/title/summary/analysis_json 等）+ WAL 文件大小
 - CI Publish Release 修复 (v1.0.11): 排除重复的 builder-debug.yml/builder-effective-config.yml，两步发布（create+upload --clobber），三平台构建+发布全部通过
 - 应用图标生成与发布: 从 logo.png 生成 icon.icns(macOS)/icon.ico(Windows)/icon.png(Linux)，.gitignore 白名单放行，已推送远程
+- 托盘图标修复: 生成 tray-icon.png/tray-iconTemplate.png/@2x 专用托盘图标；修复生产模式 fallback 路径错误；macOS 使用 Template 图标适配亮暗菜单栏；BrowserWindow 添加 icon 属性修复 Windows/Linux 任务栏图标
 
 - 后端测试全覆盖: 283 个测试用例全部通过，覆盖 12 个模块（dedup/models/rules_engine/extractor/feishu/rss_fetcher/web_scraper/db/pipeline/api/cross_scenarios），含单元测试+集成测试+全场景交叉复杂测试
 - 前端测试全覆盖: 223 个测试用例全部通过（13 个测试文件），覆盖 api/ScoreBadge/ThemeProvider/Sidebar/ArticleCard/ArticleFeed/SourcePanel/SourceManager/StatsPanel/Settings/UpdateToast/Home(page) + 集成测试；测试框架 Vitest 4.0.18 + @testing-library/react + jest-dom + user-event + jsdom

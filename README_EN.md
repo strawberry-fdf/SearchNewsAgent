@@ -2,6 +2,8 @@
 
 **English | [简体中文](README.md)**
 
+<img src="docs/images/logo.png" alt="AgentNews Logo" width="120" />
+
 # AgentNews
 
 **AI-Powered News Curation & Noise Reduction System**

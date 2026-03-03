@@ -2,6 +2,8 @@
 
 **[English](README_EN.md) | 简体中文**
 
+<img src="docs/images/logo.png" alt="AgentNews Logo" width="120" />
+
 # AgentNews
 
 **AI 智能资讯精选与降噪系统**
