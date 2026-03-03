@@ -81,15 +81,6 @@ win:
         - x64
   artifactName: "${productName}-${version}-win-${arch}.${ext}"
 
-nsis:
-  oneClick: false
-  perMachine: false
-  allowToChangeInstallationDirectory: true
-  createDesktopShortcut: true
-  createStartMenuShortcut: true
-  shortcutName: "AgentNews"
-  license: null
-
 portable:
   artifactName: "${productName}-${version}-portable.${ext}"
 

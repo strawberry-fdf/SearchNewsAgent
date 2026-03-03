@@ -75,8 +75,18 @@ jobs:
           .\venv\Scripts\python -m pip install --upgrade pip
           .\venv\Scripts\pip install -r backend/requirements.txt pyinstaller
 
-      - name: 执行构建
-        run: node scripts/build.mjs --${{ matrix.platform }} --skip-checks
+      # ── 分步构建（每步独立，失败可精确定位） ──────────────
+      - name: 构建前端 (Next.js 静态导出)
+        run: pnpm --prefix frontend build:electron
+
+      - name: 打包后端 (PyInstaller)
+        run: node scripts/build-backend.mjs --${{ matrix.platform }}
+
+      - name: 打包桌面应用 (electron-builder)
+        env:
+          # macOS: 跳过代码签名（CI 无证书）
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --${{ matrix.platform }} --publish=never
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4

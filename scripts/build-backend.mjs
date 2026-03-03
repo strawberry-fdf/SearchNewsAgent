@@ -177,6 +177,11 @@ const COLLECT_SUBMODULES = [
   'httpcore',
 ];
 
+// 排除不需要的模块（避免 collect-submodules 导入失败）
+const EXCLUDE_MODULES = [
+  'openai.helpers',     // 需要 numpy，本项目不使用 voice_helpers
+];
+
 /** 默认 .env 模板内容 */
 const DEFAULT_ENV_TEMPLATE = `\
 # ============================================================
@@ -257,6 +262,7 @@ function main() {
     `--add-data=backend${DATA_SEP}backend`,
     ...HIDDEN_IMPORTS.map(m => `--hidden-import=${m}`),
     ...COLLECT_SUBMODULES.map(m => `--collect-submodules=${m}`),
+    ...EXCLUDE_MODULES.map(m => `--exclude-module=${m}`),
     `"${ENTRY_SCRIPT}"`,
   ];
 
