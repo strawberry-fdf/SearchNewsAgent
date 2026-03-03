@@ -369,13 +369,6 @@ function buildAppMenu() {
         {
           label: "检查更新...",
           click: () => {
-            if (isDev) {
-              dialog.showMessageBox(mainWindow, {
-                title: "检查更新",
-                message: "开发模式下不支持自动更新",
-              });
-              return;
-            }
             checkGitHubRelease(true);
           },
         },
@@ -410,6 +403,7 @@ app.whenReady().then(async () => {
     log("开发模式: 加载 http://localhost:3000");
     win.loadURL("http://localhost:3000");
     win.webContents.openDevTools({ mode: "detach" });
+    setupAutoUpdater();
   } else {
     // ── 生产模式 ──────────────────────────────────────
     // 无感启动：窗口保持隐藏，后台静默启动后端，就绪后直接显示主界面
@@ -493,8 +487,6 @@ const GITHUB_API_URL = "https://api.github.com/repos/strawberry-fdf/SearchNewsAg
  * - 自动检查失败静默跳过，手动检查失败显示提示
  */
 function setupAutoUpdater() {
-  if (isDev) return;
-
   // 延迟首次检查，避免影响启动速度
   setTimeout(() => checkGitHubRelease(false), UPDATE_CHECK_DELAY);
 
@@ -741,7 +733,6 @@ function isNewerVersion(latest, current) {
 
 // ─── IPC: 渲染进程手动触发更新检查 ──────────────────────────
 ipcMain.handle("check-for-updates", async () => {
-  if (isDev) return { status: "dev" };
   checkGitHubRelease(true);
   return { status: "checking" };
 });

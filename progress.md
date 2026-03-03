@@ -7,6 +7,8 @@
 - 全局图标替换基础架构: 创建 build/ 目录（icon.ico/icon.icns/icon.png/tray-icon.png），Sidebar Logo 支持 /logo.png 图片自动加载（失败回退文字 AN），electron-builder.yml 增加 tray-icon 资源打包
 - 窗口关闭最小化到托盘: 拦截 BrowserWindow close 事件弹出三选对话框（最小化/退出/取消），系统托盘图标 + 右键菜单（显示主窗口/完全退出），单击托盘图标恢复窗口
 - 开机自启动功能: Electron 主进程 IPC (get-auto-launch/set-auto-launch) + app.setLoginItemSettings 跨平台注册；前端设置页新增「系统集成」卡片含开机自启动开关及状态回显
+- CI 自动发布已接入: 新增/重构 `.github/workflows/release.yml`，在推送 `v*` tag 时于 macOS/Windows/Linux 三平台并行构建并自动创建/更新 GitHub Release，上传桌面安装包产物
+- 更新检查逻辑统一: 开发/生产环境均启用 GitHub 版本检查（自动+手动一致）；修复构建脚本跨平台误用导致的伪成功问题（非目标系统直接失败提示）；补全 package.json author email 以满足 Linux deb 打包要求
 - 根目录文档整理: ELECTRON.md/xuqiu.md/系统说明文档.md 移入 docs/ 并重命名为 electron-packaging.md/product-requirements.md/system-architecture.md；更新所有引用路径（instructions/skills/README）
 - 项目文件清理与脚本 Node.js 化: 删除散落的 test_stdout/stderr.txt、start.sh、3 个平台 shell/ps1 脚本；新建 scripts/build-backend.mjs 统一跨平台 PyInstaller 打包（自动检测平台 + --mac/--win/--linux 参数）；package.json 中 npm 引用全部改为 pnpm
 - 大模型配置重构为多配置单激活模式: 参考筛选规则交互设计，支持保存多条 LLM 配置（名称/模型/API Key/Base URL），每次仅激活一个；删除 LLM 提供商选项，统一 OpenAI 兼容模式支持任意模型；新建/编辑配置改为屏幕中央弹窗；缓存管理只显示文章数据大小
@@ -70,3 +72,5 @@
 - **开机自启动**: 使用 Electron 内置 app.setLoginItemSettings/getLoginItemSettings，跨平台兼容（Windows 注册表/macOS 登录项/Linux XDG autostart）；前端设置页「系统集成」卡片仅在 Electron 环境显示
 - **信源 URL 编辑**: 复用 InlineEdit 组件，支持点击编辑保存，后端 PATCH /api/sources/:id 支持 url 字段更新
 - **图标替换架构**: build/ 目录存放打包图标（icon.ico/icns/png + tray-icon.png），前端 Sidebar Logo 加载 /logo.png 图片（前端 public/ 目录），加载失败回退为 AN 文字 Logo
+- **构建策略修正**: 后端 PyInstaller 不支持跨平台产物，`build.mjs` 与 `build-backend.mjs` 已增加主机/目标平台一致性校验；跨平台完整构建需在对应系统或 CI 多平台 Runner 执行
+- **发布策略升级**: 发布来源改为 GitHub Actions 自动流水线（tag 驱动），避免“仅有 tag 无 Release”导致客户端无法检测更新

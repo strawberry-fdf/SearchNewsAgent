@@ -2,7 +2,7 @@
   "name": "agent-news",
   "version": "1.0.2",
   "description": "AgentNews - AI 智能资讯精选系统 (Electron 桌面版)",
-  "author": "strawberry-fdf",
+  "author": "strawberry-fdf <strawberry-fdf@users.noreply.github.com>",
   "license": "MIT",
   "main": "electron/main.js",
   "scripts": {
