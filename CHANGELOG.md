@@ -1,3 +1,9 @@
+## [1.0.4] - 2026-03-03
+
+### 🐛 修复
+- **electron**: 修复桌面端最小化托盘图标未正确显示
+- use python -m pip and support Windows venv path in pre-commit hook
+
 ## [1.0.3] - 2026-03-03
 
 ### ✨ 新功能
