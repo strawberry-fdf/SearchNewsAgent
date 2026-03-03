@@ -1,3 +1,14 @@
+## [1.0.6] - 2026-03-03
+
+### 🐛 修复
+- **ci**: windows 打包仅保留 portable 规避 nsis 图标依赖
+- **ci**: 移除打包对 build/icon 资源的硬依赖
+
+### 🔩 杂项
+- 更新 progress.md 记录 Windows portable 构建调整
+- 更新 progress.md 记录 CI 图标依赖修复
+- 更新 progress.md 记录 v1.0.5 触发 Actions
+
 ## [1.0.5] - 2026-03-03
 
 ### 🔧 CI
