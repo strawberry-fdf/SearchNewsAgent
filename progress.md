@@ -1,4 +1,7 @@
 ## [Completed]
+- Windows 更新可靠性修复: `electron/main.js` 为 Win/Linux 增加 electron-updater 失败回退 GitHub Releases API（覆盖 latest.yml 缺失等元数据错误），恢复更新提示可见性
+- CI 发布产物补全: `.github/workflows/release.yml` 上传 `latest*.yml` 与 `*.blockmap`，修复 Windows 应用内更新检查失败
+- 文档补充: 新增 `docs/electron/01-windows-auto-update-reliability.md`，明确更新链路、边界与排障点
 - 脚本与包配置清理: `package.json` 移除冗余别名脚本（`dev:*`、`check:*`），保留主入口 `pnpm dev/check/release/build`
 - 无用脚本删除: 已删除 `scripts/commit.mjs`，避免重复提交入口与维护成本
 - 依赖瘦身: 根目录移除未使用的 `concurrently`、`cross-env`，同步更新 `pnpm-lock.yaml`
@@ -74,11 +77,12 @@
 - 设置页新增"关于与更新"卡片: Settings.tsx 添加 AboutAndUpdate 组件，显示版本号/平台信息，提供手动"检查更新"按钮（调用 electronAPI IPC）；已清理 main.js 中的模拟弹窗测试代码
 
 ## [In Progress]
-- 无
+- 验证下一次 tag release 后 Windows 安装包是否可正常拉取 `latest.yml` 并触发应用内更新
 
 ## [Next Steps]
-1. 使用 `pnpm release` 执行一次真实 patch 发版，验证交互式 commit message 与发布确认流程
-2. 验证 Release 资产仅保留 3 个安装包（`.dmg` / `-setup.exe` / `.AppImage`）
+1. 触发一次新 tag 发布，验证 Release 同步包含 `latest*.yml` 与 `*.blockmap`
+2. Windows 客户端安装旧版本后手动检查更新，确认出现更新提示并可完成下载/安装
+3. 验证 Release 资产仍保持三端安装包（`.dmg` / `-setup.exe` / `.AppImage`）
 
 ## [Key Decisions / Context]
 - LLM 厂商注册表: 13 个厂商（openai/anthropic/deepseek/zhipu/minimax/xai/mistral/groq/openrouter/dashscope/baichuan/gemini/ollama），支持厂商切换自动填充 Base URL + 静态模型列表 + API 模型发现
@@ -112,3 +116,4 @@
 - **图标替换架构**: build/ 目录存放打包图标（icon.ico/icns/png + tray-icon.png），前端 Sidebar Logo 加载 /logo.png 图片（前端 public/ 目录），加载失败回退为 AN 文字 Logo
 - **构建策略修正**: 后端 PyInstaller 不支持跨平台产物，`build.mjs` 与 `build-backend.mjs` 已增加主机/目标平台一致性校验；跨平台完整构建需在对应系统或 CI 多平台 Runner 执行
 - **发布策略升级**: 发布来源改为 GitHub Actions 自动流水线（tag 驱动），避免“仅有 tag 无 Release”导致客户端无法检测更新
+- **更新兜底策略**: Win/Linux 首选 `electron-updater`；若元数据缺失（`latest*.yml`/`*.blockmap`）导致失败，自动回退 GitHub Releases API 保证可见更新提示

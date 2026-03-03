@@ -96,6 +96,8 @@ jobs:
             dist/*-mac.dmg
             dist/*-setup.exe
             dist/*.AppImage
+            dist/latest*.yml
+            dist/*.blockmap
           if-no-files-found: error
           retention-days: 7
 
@@ -129,7 +131,7 @@ jobs:
 
           # 收集构建产物（排除 builder-debug / builder-effective-config 等重复文件）
           mapfile -d '' FILES < <(find release-assets -type f \( \
-            -name "*-mac.dmg" -o -name "*-setup.exe" -o -name "*.AppImage" \
+            -name "*-mac.dmg" -o -name "*-setup.exe" -o -name "*.AppImage" -o -name "latest*.yml" -o -name "*.blockmap" \
           \) ! -name "builder-debug.yml" \
             ! -name "builder-effective-config.yml" \
           -print0)

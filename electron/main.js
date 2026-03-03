@@ -500,6 +500,37 @@ const UPDATE_MAX_RETRIES = 2;             // 最大重试次数
 const UPDATE_RETRY_DELAY = 5_000;         // 重试间隔 (5 秒)
 const GITHUB_API_URL = "https://api.github.com/repos/strawberry-fdf/SearchNewsAgent/releases/latest";
 
+/**
+ * 判断 electron-updater 错误是否适合回退到 GitHub Releases API 检查。
+ * 常见场景：Release 未上传 latest.yml / blockmap，导致应用内更新元数据缺失。
+ */
+function shouldFallbackToGitHubRelease(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  if (!message) return false;
+  return [
+    "latest.yml",
+    "latest-linux.yml",
+    "no published versions",
+    "cannot find update",
+    "cannot parse update",
+    "app-update.yml",
+    "channel file",
+  ].some((keyword) => message.includes(keyword));
+}
+
+/**
+ * Win/Linux 使用 electron-updater 失败时，回退到 GitHub Releases API。
+ * 目的：至少保证用户可以收到“有新版本”提示与外部下载入口。
+ */
+function fallbackToGitHubRelease(err, manual) {
+  if (shouldFallbackToGitHubRelease(err)) {
+    log(`应用内更新元数据不可用，回退 GitHub Releases 检查: ${err.message || err}`);
+    checkGitHubRelease(manual);
+    return true;
+  }
+  return false;
+}
+
 /** 向渲染进程发送更新检查结果 */
 function sendUpdateResult(payload, manual = false) {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -523,7 +554,9 @@ function triggerManualUpdateCheck() {
     autoUpdater.checkForUpdates().catch((err) => {
       isManualUpdaterCheck = false;
       log(`检查更新失败: ${err.message}`);
-      sendUpdateResult({ type: "error", message: "检查更新失败，请稍后重试" }, true);
+      if (!fallbackToGitHubRelease(err, true)) {
+        sendUpdateResult({ type: "error", message: "检查更新失败，请稍后重试" }, true);
+      }
     });
     return;
   }
@@ -615,9 +648,15 @@ function setupElectronUpdater() {
   autoUpdater.on("error", (err) => {
     isUpdateDownloading = false;
     log(`自动更新出错: ${err.message}`);
-    if (isManualUpdaterCheck) {
+    const manual = isManualUpdaterCheck;
+    isManualUpdaterCheck = false;
+
+    if (fallbackToGitHubRelease(err, manual)) {
+      return;
+    }
+
+    if (manual) {
       sendUpdateResult({ type: "error", message: "自动更新失败，请稍后重试" }, true);
-      isManualUpdaterCheck = false;
     }
   });
 
@@ -625,12 +664,14 @@ function setupElectronUpdater() {
   setTimeout(() => {
     autoUpdater.checkForUpdates().catch((err) => {
       log(`检查更新失败: ${err.message}`);
+      fallbackToGitHubRelease(err, false);
     });
   }, UPDATE_CHECK_DELAY);
 
   setInterval(() => {
     autoUpdater.checkForUpdates().catch((err) => {
       log(`定期检查更新失败: ${err.message}`);
+      fallbackToGitHubRelease(err, false);
     });
   }, UPDATE_CHECK_INTERVAL);
 }
