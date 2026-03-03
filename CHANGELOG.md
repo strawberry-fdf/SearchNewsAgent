@@ -1,3 +1,8 @@
+## [1.0.11] - 2026-03-03
+
+### 🐛 修复
+- **ci**: exclude duplicate debug files & use clobber upload to prevent 422
+
 ## [1.0.10] - 2026-03-03
 
 ### 🐛 修复
