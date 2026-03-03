@@ -467,7 +467,8 @@ if (!gotTheLock) {
 
 // ─── 更新检查配置 ────────────────────────────────────────────
 const UPDATE_CHECK_DELAY = 5_000;         // 启动后首次检查延迟 (5 秒)
-const UPDATE_CHECK_INTERVAL = 4 * 3600_000; // 定期检查间隔 (4 小时)
+// const UPDATE_CHECK_INTERVAL = 4 * 3600_000; // 定期检查间隔 (4 小时)
+const UPDATE_CHECK_INTERVAL = 60_000; // 定期检查间隔 (1 分钟，测试用)
 const UPDATE_REQUEST_TIMEOUT = 15_000;    // 单次请求超时 (15 秒)
 const UPDATE_MAX_RETRIES = 2;             // 最大重试次数
 const UPDATE_RETRY_DELAY = 5_000;         // 重试间隔 (5 秒)
@@ -483,14 +484,14 @@ const GITHUB_API_URL = "https://api.github.com/repos/strawberry-fdf/SearchNewsAg
  * 网络健壮性:
  * - 使用 Electron net 模块（走 Chromium 网络栈，自动遵循系统代理）
  * - 失败自动重试（最多 2 次，间隔 5 秒）
- * - 启动后 5 秒首次检查，之后每 4 小时定期检查
+ * - 启动后 5 秒首次检查，之后按 UPDATE_CHECK_INTERVAL 定期检查
  * - 自动检查失败静默跳过，手动检查失败显示提示
  */
 function setupAutoUpdater() {
   // 延迟首次检查，避免影响启动速度
   setTimeout(() => checkGitHubRelease(false), UPDATE_CHECK_DELAY);
 
-  // 定期检查（每 4 小时）
+  // 定期检查（当前 1 分钟，测试用）
   setInterval(() => checkGitHubRelease(false), UPDATE_CHECK_INTERVAL);
 
   // TODO: 接入 CI/CD 后，Windows/Linux 可启用 electron-updater:
