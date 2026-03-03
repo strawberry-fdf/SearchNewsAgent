@@ -189,9 +189,9 @@ Electron 打包为跨平台桌面应用，无需配置 Python / Node 环境：
 
 | 平台 | 格式 |
 |------|------|
-| macOS | `.dmg` / `.zip`（arm64 + x64） |
-| Windows | `.exe` (NSIS) / Portable（x64） |
-| Linux | `.AppImage` / `.deb`（x64） |
+| macOS | `.dmg`（arm64） |
+| Windows | `-setup.exe` (NSIS)（x64） |
+| Linux | `.AppImage`（x64） |
 
 产物输出至 `dist/` 目录。详细打包说明见 [Electron 打包指南](docs/electron-packaging.md)。
 

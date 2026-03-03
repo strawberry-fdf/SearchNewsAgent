@@ -15,7 +15,7 @@
 - **四步硬核精选**: 规则引擎实现分类拦截 → 相关性过滤 → 模型精选 → 重要性门槛四级漏斗
 - **前端即时呈现**: Next.js 多主题 UI（亮色/暗色/跟随系统），支持分类筛选、按信源分组、收藏、搜索、Pipeline 实时日志
 - **飞书推送**: 入选文章自动推送到飞书 Webhook 群
-- **Electron 桌面应用**: 打包为 Windows (NSIS/Portable) 独立桌面程序，无感启动，开箱即用
+- **Electron 桌面应用**: 打包为 macOS/Windows/Linux 独立桌面程序，无感启动，开箱即用
 
 ### 1.2 技术栈
 
@@ -437,8 +437,7 @@ Step 4: 重要性门槛  → importance < 阈值          → REJECTED_LOW_IMPOR
 系统已打包为 Electron 桌面应用，开箱即用：
 
 **Windows:**
-- `AgentNews-x.x.x-win-x64.exe` — NSIS 安装程序（支持自定义安装目录）
-- `AgentNews-x.x.x-portable.exe` — 免安装便携版（双击即用）
+- `AgentNews-x.x.x-setup.exe` — NSIS 安装程序（支持自定义安装目录）
 
 **启动流程:**
 1. 首次启动自动在用户数据目录创建 `.env` 配置文件和 SQLite 数据库

@@ -100,8 +100,7 @@ npm run build:win
 ```
 
 产出:
-- `dist/AgentNews-x.x.x-win-x64.exe` — NSIS 安装程序
-- `dist/AgentNews-x.x.x-portable.exe` — 免安装便携版
+- `dist/AgentNews-x.x.x-setup.exe` — NSIS 安装程序（支持选择安装目录）
 
 ### 4.2 Linux 完整打包
 
@@ -112,7 +111,6 @@ npm run build:linux
 
 产出:
 - `dist/AgentNews-x.x.x.AppImage` — 通用 AppImage（推荐）
-- `dist/AgentNews-x.x.x-amd64.deb` — Debian/Ubuntu .deb 包
 
 ### 4.3 分步构建（调试用）
 

@@ -93,14 +93,9 @@ jobs:
         with:
           name: dist-${{ matrix.platform }}
           path: |
-            dist/*.dmg
-            dist/*.zip
-            dist/*.exe
+            dist/*-mac.dmg
+            dist/*-setup.exe
             dist/*.AppImage
-            dist/*.deb
-            dist/*.blockmap
-            dist/*.yml
-            dist/*.yaml
           if-no-files-found: error
           retention-days: 7
 
@@ -134,9 +129,7 @@ jobs:
 
           # 收集构建产物（排除 builder-debug / builder-effective-config 等重复文件）
           mapfile -d '' FILES < <(find release-assets -type f \( \
-            -name "*.dmg" -o -name "*.zip" -o -name "*.exe" \
-            -o -name "*.AppImage" -o -name "*.deb" \
-            -o -name "*.blockmap" -o -name "*.yml" -o -name "*.yaml" \
+            -name "*-mac.dmg" -o -name "*-setup.exe" -o -name "*.AppImage" \
           \) ! -name "builder-debug.yml" \
             ! -name "builder-effective-config.yml" \
           -print0)

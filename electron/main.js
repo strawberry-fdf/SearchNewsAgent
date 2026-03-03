@@ -774,6 +774,11 @@ function isNewerVersion(latest, current) {
   return false;
 }
 
+// ─── IPC: 同步获取应用版本（preload 启动阶段使用）────────────────
+ipcMain.on("get-app-version-sync", (event) => {
+  event.returnValue = app.getVersion();
+});
+
 // ─── IPC: 渲染进程手动触发更新检查 ──────────────────────────
 ipcMain.handle("check-for-updates", async () => {
   triggerManualUpdateCheck();

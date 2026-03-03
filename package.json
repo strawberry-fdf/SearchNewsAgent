@@ -1,6 +1,6 @@
 {
   "name": "agent-news",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "AgentNews - AI 智能资讯精选系统 (Electron 桌面版)",
   "author": "strawberry-fdf <strawberry-fdf@users.noreply.github.com>",
   "license": "MIT",
@@ -26,6 +26,7 @@
     "release:patch": "node scripts/release.mjs patch",
     "release:minor": "node scripts/release.mjs minor",
     "release:major": "node scripts/release.mjs major",
+    "ship": "node scripts/release.mjs --push --allow-dirty",
     "----------- 构建 -----------": "",
     "build": "node scripts/build.mjs",
     "build:mac": "node scripts/build.mjs --mac",

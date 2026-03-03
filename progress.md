@@ -1,4 +1,13 @@
 ## [Completed]
+- 发布命令收敛: `package.json` 对外统一为单入口 `pnpm ship`（交互选择版本），避免多条 release 命令分散
+- 单命令发布验证: `pnpm ship -- --dry-run` 已跑通，确认一次执行可覆盖 add/commit/tag/push 全链路
+- 一条命令全链路发版: 新增 `pnpm release:all`（及 minor/major 变体），可直接执行当前改动的 add + commit + tag + push，并触发 CI Release
+- 发布脚本支持 dirty 工作区: `scripts/release.mjs` 新增 `--allow-dirty`，解决工作区有改动时 `release:auto:patch` 失败问题
+- 自动发版脚本增强: `scripts/release.mjs` 新增 `--yes/-y`、`--push`、`--skip-push/--no-push` 参数，支持无交互完成版本递增 + commit + tag + push
+- 一键发版命令新增: `package.json` 增加 `pnpm release:auto:patch/minor/major`，可直接触发 tag 推送并由 CI 自动发布 Release
+- Release 产物精简为三端单文件: electron-builder 改为仅输出 macOS `.dmg`、Windows `-setup.exe`、Linux `.AppImage`，并同步 CI 仅上传这三类安装包到 GitHub Release
+- Windows 安装体验修复: NSIS 打开安装目录选择（allowToChangeInstallationDirectory=true），支持用户选择安装盘
+- 版本号错误修复: preload 不再读取 `npm_package_version`，改为通过主进程 `app.getVersion()` 同步 IPC 获取，解决安装后显示 `0.0.0`
 - 更新交互策略收敛: 前端“更新”按钮去除 Release 外链兜底，统一改为应用内更新通道（Win/Linux 静默更新下载并自动安装重启）；不可用时仅提示错误不跳转
 - Win/Linux 静默更新闭环: 更新按钮改为应用内更新（electron-updater），点击后后台下载并在下载完成后自动静默安装 + 重启；macOS 保持跳转 GitHub Release；同步新增 preload IPC 与前端 UpdateToast 平台分流逻辑及测试覆盖
 - 自动更新调试开关: electron/main.js 将定期检查间隔临时改为 1 分钟（保留 4 小时配置为注释，便于测试后恢复）
@@ -57,9 +66,9 @@
 - 无
 
 ## [Next Steps]
-1. 创建 v1.0.12 Release 验证图标是否正确嵌入各平台安装包
-2. Apple Developer 证书签名（消除 macOS "已损坏" 弹窗）
-3. 在 Linux 运行 `pnpm run build:linux` 完整打包测试
+1. 使用 `pnpm ship` 执行一次真实 patch 发版，验证 add/commit/tag/push/Release 全链路
+2. 验证 Release 资产仅保留 3 个安装包（`.dmg` / `-setup.exe` / `.AppImage`）
+3. Apple Developer 证书签名（消除 macOS "已损坏" 弹窗）
 
 ## [Key Decisions / Context]
 - **提交规范**: 使用 Conventional Commits (`feat:/fix:/docs:/style:/refactor:/perf:/test:/build:/ci:/chore:/revert:`)，Husky + commitlint 自动校验；`pnpm commit` 交互式引导提交

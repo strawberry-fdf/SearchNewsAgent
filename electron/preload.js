@@ -7,6 +7,14 @@
 
 const { contextBridge, ipcRenderer } = require("electron");
 
+function getAppVersion() {
+  try {
+    return ipcRenderer.sendSync("get-app-version-sync");
+  } catch {
+    return "0.0.0";
+  }
+}
+
 // 向渲染进程暴露最小化的桌面 API
 contextBridge.exposeInMainWorld("electronAPI", {
   /** 当前是否运行在 Electron 环境中 */
@@ -16,7 +24,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   platform: process.platform,
 
   /** 获取应用版本 */
-  version: process.env.npm_package_version || "0.0.0",
+  version: getAppVersion(),
 
   // ── 自动更新 API ──────────────────────────────────────
   /** 手动触发更新检查 */

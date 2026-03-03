@@ -11,6 +11,8 @@
  *   node scripts/release.mjs major          # 1.0.0 → 2.0.0（破坏性变更）
  *   node scripts/release.mjs --version 2.1.0 # 指定精确版本号
  *   node scripts/release.mjs patch --build  # 发布后自动打包当前平台
+ *   node scripts/release.mjs patch --yes --push # 无交互：递增版本 + commit + tag + push
+ *   node scripts/release.mjs patch --yes --push --allow-dirty # 包含当前未提交改动一起发布
  *   node scripts/release.mjs patch --dry-run # 预览模式（不实际执行）
  */
 
@@ -30,6 +32,12 @@ const bumpType = argv.find((a) => ["major", "minor", "patch"].includes(a));
 const explicitVersion = argv.includes("--version") ? argv[argv.indexOf("--version") + 1] : null;
 const dryRun = argv.includes("--dry-run");
 const autoBuild = argv.includes("--build");
+const yesMode = argv.includes("--yes") || argv.includes("-y");
+const forcePush = argv.includes("--push");
+const skipPush = argv.includes("--skip-push") || argv.includes("--no-push");
+const allowDirty = argv.includes("--allow-dirty") || yesMode;
+const messageIndex = argv.findIndex((a) => a === "--message" || a === "-m");
+const customCommitMessage = messageIndex >= 0 ? argv[messageIndex + 1] : "";
 
 // ── 工具函数 ──────────────────────────────────────────────────
 const c = {
@@ -129,12 +137,17 @@ async function main() {
   if (dryRun) console.log(`${c.yellow}  (预览模式 — 不会实际执行任何变更)${c.reset}`);
   console.log();
 
-  // 检查工作区干净
+  // 检查工作区状态
   const dirty = runSilent("git status --porcelain");
   if (dirty && !dryRun) {
-    console.log(`${c.red}✗ 工作区有未提交的变更，请先提交或暂存${c.reset}`);
-    console.log(`${c.dim}${dirty}${c.reset}`);
-    process.exit(1);
+    if (!allowDirty) {
+      const dirtyConfirm = await ask(`${c.yellow}⚠ 工作区有未提交改动，是否将当前改动一并发布？(Y/n) ${c.reset}`);
+      if (dirtyConfirm.toLowerCase() === "n") {
+        console.log(`${c.yellow}⚠ 已取消${c.reset}`);
+        process.exit(0);
+      }
+    }
+    console.log(`${c.dim}检测到工作区改动，将在本次发布中一并提交。${c.reset}`);
   }
 
   // 读取当前版本
@@ -149,6 +162,9 @@ async function main() {
     newVersion = explicitVersion;
   } else if (bumpType) {
     newVersion = bumpVersion(currentVersion, bumpType);
+  } else if (yesMode) {
+    // 无交互模式下默认 patch
+    newVersion = bumpVersion(currentVersion, "patch");
   } else {
     console.log(`\n${c.dim}选择版本递增类型:${c.reset}`);
     console.log(`  ${c.cyan}1${c.reset}) ${c.bold}patch${c.reset}  ${c.dim}${bumpVersion(currentVersion, "patch")}  — 补丁修复${c.reset}`);
@@ -167,10 +183,14 @@ async function main() {
   console.log(`${c.dim}新版本:${c.reset}   ${c.green}${c.bold}v${newVersion}${c.reset}\n`);
 
   // 确认
-  const confirm = await ask(`${c.cyan}?${c.reset} 确认发布 v${newVersion}？(Y/n) `);
-  if (confirm.toLowerCase() === "n") {
-    console.log(`${c.yellow}⚠ 已取消${c.reset}`);
-    process.exit(0);
+  if (!yesMode) {
+    const confirm = await ask(`${c.cyan}?${c.reset} 确认发布 v${newVersion}？(Y/n) `);
+    if (confirm.toLowerCase() === "n") {
+      console.log(`${c.yellow}⚠ 已取消${c.reset}`);
+      process.exit(0);
+    }
+  } else {
+    console.log(`${c.dim}无交互模式: 已自动确认发布${c.reset}`);
   }
 
   // ── 1. 更新版本号 ──
@@ -229,8 +249,9 @@ async function main() {
   // ── 3. 提交版本变更 ──
   console.log(`${c.cyan}[3/5]${c.reset} 提交版本变更...`);
   run("git add -A", { silent: true });
-  run(`git commit --no-verify -m "chore(release): v${newVersion}"`, { silent: true });
-  console.log(`  ${c.green}✓${c.reset} 已提交: chore(release): v${newVersion}`);
+  const commitMessage = customCommitMessage || `chore(release): v${newVersion}`;
+  run(`git commit --no-verify -m "${commitMessage.replace(/"/g, '\\"')}"`, { silent: true });
+  console.log(`  ${c.green}✓${c.reset} 已提交: ${commitMessage}`);
 
   // ── 4. 创建 Tag ──
   console.log(`\n${c.cyan}[4/5]${c.reset} 创建 Git Tag...`);
@@ -239,8 +260,19 @@ async function main() {
 
   // ── 5. 推送 ──
   console.log(`\n${c.cyan}[5/5]${c.reset} 推送到远程...`);
-  const pushConfirm = await ask(`${c.cyan}?${c.reset} 推送 commit + tag 到远程？(Y/n) `);
-  if (pushConfirm.toLowerCase() !== "n") {
+  let shouldPush = false;
+  if (forcePush) {
+    shouldPush = true;
+  } else if (skipPush) {
+    shouldPush = false;
+  } else if (yesMode) {
+    shouldPush = true;
+  } else {
+    const pushConfirm = await ask(`${c.cyan}?${c.reset} 推送 commit + tag 到远程？(Y/n) `);
+    shouldPush = pushConfirm.toLowerCase() !== "n";
+  }
+
+  if (shouldPush) {
     run("git push", { silent: true });
     run("git push --tags", { silent: true });
     console.log(`  ${c.green}✓${c.reset} 已推送到远程`);

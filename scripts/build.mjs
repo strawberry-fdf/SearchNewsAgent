@@ -92,9 +92,9 @@ async function resolvePlatform() {
   // 交互式选择
   const current = detectCurrentPlatform();
   console.log(`${c.dim}当前系统: ${platformLabel(current)}${c.reset}\n`);
-  console.log(`  ${c.cyan}1${c.reset}) ${c.bold}mac${c.reset}     ${c.dim}macOS (DMG + ZIP)${c.reset}`);
-  console.log(`  ${c.cyan}2${c.reset}) ${c.bold}win${c.reset}     ${c.dim}Windows (NSIS + Portable)${c.reset}`);
-  console.log(`  ${c.cyan}3${c.reset}) ${c.bold}linux${c.reset}   ${c.dim}Linux (AppImage + DEB)${c.reset}`);
+  console.log(`  ${c.cyan}1${c.reset}) ${c.bold}mac${c.reset}     ${c.dim}macOS (DMG)${c.reset}`);
+  console.log(`  ${c.cyan}2${c.reset}) ${c.bold}win${c.reset}     ${c.dim}Windows (NSIS Setup)${c.reset}`);
+  console.log(`  ${c.cyan}3${c.reset}) ${c.bold}linux${c.reset}   ${c.dim}Linux (AppImage)${c.reset}`);
   console.log(`  ${c.cyan}4${c.reset}) ${c.bold}current${c.reset} ${c.dim}当前平台 (${platformLabel(current)})${c.reset}`);
 
   const choice = await ask(`\n${c.cyan}?${c.reset} 选择目标平台 (1-4, 默认 4): `);

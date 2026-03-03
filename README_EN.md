@@ -190,9 +190,9 @@ Electron packages the app as a cross-platform desktop application — no Python 
 
 | Platform | Format |
 |----------|--------|
-| macOS | `.dmg` / `.zip` (arm64 + x64) |
-| Windows | `.exe` (NSIS) / Portable (x64) |
-| Linux | `.AppImage` / `.deb` (x64) |
+| macOS | `.dmg` (arm64) |
+| Windows | `-setup.exe` (NSIS) (x64) |
+| Linux | `.AppImage` (x64) |
 
 Build output goes to `dist/`. See [Electron Packaging Guide](docs/electron-packaging.md) for details.
 
