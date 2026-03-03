@@ -28,7 +28,9 @@ echo ""
 
 # ── 3. 后端测试 ──
 echo "━━━ [3/3] 后端单元测试 (Pytest) ━━━"
-if [ -f "venv/bin/python" ]; then
+if [ -f "venv/Scripts/python.exe" ]; then
+  PYTHON="venv/Scripts/python.exe"
+elif [ -f "venv/bin/python" ]; then
   PYTHON="venv/bin/python"
 elif [ -f "backend/venv/bin/python" ]; then
   PYTHON="backend/venv/bin/python"

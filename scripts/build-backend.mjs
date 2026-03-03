@@ -59,18 +59,16 @@ function getPythonPaths() {
   const venvDir = join(PROJECT_ROOT, 'venv');
   if (IS_WIN) {
     const venvPython = join(venvDir, 'Scripts', 'python.exe');
-    const venvPip = join(venvDir, 'Scripts', 'pip.exe');
     if (existsSync(venvPython)) {
-      return { python: venvPython, pip: venvPip, usingVenv: true };
+      return { python: venvPython, usingVenv: true };
     }
   } else {
     const venvPython = join(venvDir, 'bin', 'python');
-    const venvPip = join(venvDir, 'bin', 'pip');
     if (existsSync(venvPython)) {
-      return { python: venvPython, pip: venvPip, usingVenv: true };
+      return { python: venvPython, usingVenv: true };
     }
   }
-  return { python: 'python3', pip: 'pip3', usingVenv: false };
+  return { python: 'python3', usingVenv: false };
 }
 
 /** 递归删除目录中匹配的文件/文件夹 */
@@ -227,17 +225,17 @@ function main() {
   }
 
   // ── Step 1: 检查 Python 环境 ──────────────────────────────
-  const { python, pip, usingVenv } = getPythonPaths();
+  const { python, usingVenv } = getPythonPaths();
   log('1/5', usingVenv ? `使用虚拟环境: ${join(PROJECT_ROOT, 'venv')}` : '未找到虚拟环境，使用系统 Python');
 
   // ── Step 2: 确保 PyInstaller 已安装 ────────────────────────
   log('2/5', '检查 PyInstaller...');
   try {
-    execSync(`"${pip}" show pyinstaller`, { stdio: 'ignore' });
+    execSync(`"${python}" -m pip show pyinstaller`, { stdio: 'ignore' });
     console.log('  -> PyInstaller 就绪');
   } catch {
     console.log('  -> 安装 PyInstaller...');
-    run(`"${pip}" install pyinstaller`);
+    run(`"${python}" -m pip install pyinstaller`);
   }
 
   // ── Step 3: 清理旧构建产物 ────────────────────────────────
