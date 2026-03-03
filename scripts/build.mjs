@@ -119,6 +119,16 @@ async function main() {
   console.log(`\n${c.cyan}${c.bold}📦 AgentNews v${version} — 构建流水线${c.reset}\n`);
 
   const platform = await resolvePlatform();
+  const hostPlatform = detectCurrentPlatform();
+
+  if (!onlyFrontend && platform !== hostPlatform) {
+    console.log(`${c.red}❌ 不支持跨平台完整打包${c.reset}`);
+    console.log(`${c.dim}当前主机: ${platformLabel(hostPlatform)} | 目标平台: ${platformLabel(platform)}${c.reset}`);
+    console.log(`${c.dim}原因: 后端 PyInstaller 仅支持目标系统原生构建。${c.reset}`);
+    console.log(`${c.dim}建议: 在对应系统本机执行，或使用 CI 在 macOS/Windows/Linux runner 分别执行 build。${c.reset}\n`);
+    process.exit(1);
+  }
+
   const totalSteps = computeSteps();
 
   console.log(`\n${c.dim}目标平台: ${c.reset}${c.bold}${platformLabel(platform)}${c.reset}`);

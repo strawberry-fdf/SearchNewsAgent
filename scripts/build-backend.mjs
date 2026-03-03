@@ -38,9 +38,11 @@ function detectPlatform() {
   return platform();
 }
 
+const HOST_PLATFORM = platform();
 const PLATFORM = detectPlatform();
 const IS_WIN = PLATFORM === 'win32';
 const PLATFORM_LABEL = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' }[PLATFORM] || PLATFORM;
+const HOST_PLATFORM_LABEL = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' }[HOST_PLATFORM] || HOST_PLATFORM;
 
 // ── 工具函数 ─────────────────────────────────────────────────
 function log(step, msg) {
@@ -211,6 +213,13 @@ function main() {
   console.log('========================================');
   console.log(`  AgentNews 后端打包 (${PLATFORM_LABEL})`);
   console.log('========================================');
+
+  if (PLATFORM !== HOST_PLATFORM) {
+    console.error(`\n❌ 不支持跨平台打包后端: 当前主机 ${HOST_PLATFORM_LABEL}，目标 ${PLATFORM_LABEL}`);
+    console.error('PyInstaller 仅支持在目标系统原生构建可执行文件。');
+    console.error('请在对应系统本机执行，或通过 CI 在多系统 runner 分别构建。\n');
+    process.exit(1);
+  }
 
   // ── Step 1: 检查 Python 环境 ──────────────────────────────
   const { python, pip, usingVenv } = getPythonPaths();
