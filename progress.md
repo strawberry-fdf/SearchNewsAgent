@@ -24,6 +24,8 @@
 - 删除信源时级联删除对应文章: `delete_source()` 先查信源名再删 articles 再删 sources，确保数据库一致性
 - 信源面板置顶功能完善: 分类置顶（pinned_categories 存 settings 表，有序列表）+ 信源置顶（pin_order 字段按先后排序），编辑模式下分类头部新增置顶按钮，正常模式显示 Pin 图标
 - 修复缓存统计不一致问题: 信源估算字节数扩展为包含所有文本字段（raw_html/clean_markdown/title/summary/analysis_json 等）+ WAL 文件大小
+- CI Publish Release 修复 (v1.0.11): 排除重复的 builder-debug.yml/builder-effective-config.yml，两步发布（create+upload --clobber），三平台构建+发布全部通过
+- 应用图标生成与发布: 从 logo.png 生成 icon.icns(macOS)/icon.ico(Windows)/icon.png(Linux)，.gitignore 白名单放行，已推送远程
 
 - 后端测试全覆盖: 283 个测试用例全部通过，覆盖 12 个模块（dedup/models/rules_engine/extractor/feishu/rss_fetcher/web_scraper/db/pipeline/api/cross_scenarios），含单元测试+集成测试+全场景交叉复杂测试
 - 前端测试全覆盖: 223 个测试用例全部通过（13 个测试文件），覆盖 api/ScoreBadge/ThemeProvider/Sidebar/ArticleCard/ArticleFeed/SourcePanel/SourceManager/StatsPanel/Settings/UpdateToast/Home(page) + 集成测试；测试框架 Vitest 4.0.18 + @testing-library/react + jest-dom + user-event + jsdom
@@ -48,11 +50,11 @@
 - 设置页新增"关于与更新"卡片: Settings.tsx 添加 AboutAndUpdate 组件，显示版本号/平台信息，提供手动"检查更新"按钮（调用 electronAPI IPC）；已清理 main.js 中的模拟弹窗测试代码
 
 ## [In Progress]
-- v1.0.7 CI 构建中, 等待三平台结果验证 (run ID: 22624606097)
+- 无
 
 ## [Next Steps]
-1. 将实际图标资源放入 build/ 目录（icon.ico/icon.icns/icon.png/tray-icon.png）和 frontend/public/logo.png，替换占位文件
-2. 创建首个 GitHub Release (tag v1.0.0) 并手动上传打包产物，验证更新检查流程
+1. 创建 v1.0.12 Release 验证图标是否正确嵌入各平台安装包
+2. Apple Developer 证书签名（消除 macOS "已损坏" 弹窗）
 3. 在 Linux 运行 `pnpm run build:linux` 完整打包测试
 
 ## [Key Decisions / Context]
