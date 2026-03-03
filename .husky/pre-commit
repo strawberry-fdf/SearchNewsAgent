@@ -28,12 +28,14 @@ echo ""
 
 # ── 3. 后端测试 ──
 echo "━━━ [3/3] 后端单元测试 (Pytest) ━━━"
-if [ -d "venv" ]; then
-  source venv/bin/activate 2>/dev/null || true
-elif [ -d "backend/venv" ]; then
-  source backend/venv/bin/activate 2>/dev/null || true
+if [ -f "venv/bin/python" ]; then
+  PYTHON="venv/bin/python"
+elif [ -f "backend/venv/bin/python" ]; then
+  PYTHON="backend/venv/bin/python"
+else
+  PYTHON="python3"
 fi
-python -m pytest backend/tests/ -q --tb=short
+"$PYTHON" -m pytest backend/tests/ -q --tb=short
 echo "✅ 后端测试通过"
 echo ""
 
