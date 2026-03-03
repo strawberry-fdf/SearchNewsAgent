@@ -1,4 +1,5 @@
 ## [Completed]
+- CI 三平台构建修复 (v1.0.7): ①拆分单一构建为前端/后端/Electron 三步便于定位 ②添加 --publish=never 阻止 electron-builder CI 自动发布（无 GH_TOKEN 致认证失败为主因）③CSC_IDENTITY_AUTO_DISCOVERY=false 跳过 macOS 签名 ④排除 openai.helpers 模块 ⑤移除未用 NSIS 配置段
 - Windows CI 打包策略调整: 为规避 NSIS 对 `build/icon.ico` 的强依赖，Windows 产物暂改为仅构建 `portable` 目标，避免发版流水线中断
 - CI 打包修复: 移除 electron-builder 对 `build/icon.*` 与 `build/tray-icon.png` 的硬依赖，避免 CI 因缺失本地图标资源导致 Windows/macOS/Linux 打包中断
 - Patch 发版验证: 已在 main 成功发布并推送 `v1.0.5`，GitHub Actions `Build & Release` 已被新 tag 正常触发
@@ -47,7 +48,7 @@
 - 设置页新增"关于与更新"卡片: Settings.tsx 添加 AboutAndUpdate 组件，显示版本号/平台信息，提供手动"检查更新"按钮（调用 electronAPI IPC）；已清理 main.js 中的模拟弹窗测试代码
 
 ## [In Progress]
-- 无
+- v1.0.7 CI 构建中, 等待三平台结果验证 (run ID: 22624606097)
 
 ## [Next Steps]
 1. 将实际图标资源放入 build/ 目录（icon.ico/icon.icns/icon.png/tray-icon.png）和 frontend/public/logo.png，替换占位文件
