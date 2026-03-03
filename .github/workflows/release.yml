@@ -123,21 +123,43 @@ jobs:
       - name: 列出下载的产物
         run: find release-assets -type f | sort
 
-      - name: 发布 GitHub Release
+      - name: 检查 Token 权限（调试）
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # 收集所有需要上传的桌面应用文件
-          FILES=$(find release-assets -type f \( \
+          echo "🔑 gh auth status:"
+          gh auth status || true
+          echo ""
+          echo "📋 Token permissions (from API):"
+          curl -s -H "Authorization: token $GH_TOKEN" \
+            https://api.github.com/repos/${{ github.repository }} \
+            | jq '.permissions' || true
+
+      - name: 发布 GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # 使用 bash 数组正确处理含空格的文件名
+          mapfile -d '' FILES < <(find release-assets -type f \( \
             -name "*.dmg" -o -name "*.zip" -o -name "*.exe" \
             -o -name "*.AppImage" -o -name "*.deb" \
             -o -name "*.blockmap" -o -name "*.yml" -o -name "*.yaml" \
-          \))
-          echo "📦 待上传文件:"
-          echo "$FILES"
+          \) -print0)
+
+          echo "📦 待上传文件 (${#FILES[@]} 个):"
+          printf '  %s\n' "${FILES[@]}"
           echo ""
-          # 创建 Release 并上传资产
+
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "❌ 未找到任何构建产物!"
+            exit 1
+          fi
+
+          echo "🚀 创建 GitHub Release: ${{ github.ref_name }}"
           gh release create "${{ github.ref_name }}" \
             --title "Release ${{ github.ref_name }}" \
             --generate-notes \
-            $FILES
+            "${FILES[@]}"
