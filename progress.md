@@ -1,4 +1,8 @@
 ## [Completed]
+- Linux 启动稳健性增强：`electron/main.js` 增加 Linux `disableHardwareAcceleration`、`ready-to-show` 6s 兜底显示、`did-fail-load` 强制显示，以及托盘初始化失败降级不阻断主窗口启动
+- Linux deb 桌面图标启动修复（--no-sandbox）：排查确认 deb 安装的 chrome-sandbox 无 SUID 位，在 unprivileged userns 被禁的系统上 Chromium 沙箱静默失败导致进程直接退出；`electron/main.js` 添加 `app.commandLine.appendSwitch('no-sandbox')`，`electron-builder.yml` 添加 `executableArgs: ['--no-sandbox']` 确保 .desktop Exec 行包含该参数；与 VS Code / Discord 等主流 Electron 应用策略一致
+- Linux 打包格式改为 deb: electron-builder.yml 目标从 AppImage 改为 deb；同步更新 CI release.yml 产物匹配、build.mjs 选项标签、README/README_EN 文档
+- 新建/编辑大模型配置弹窗移除厂商选择: 删除厂商下拉、自动填充逻辑、发现模型按钮、快捷模型标签、API文档链接及相关state/函数；保存时固定 provider="openai"；前端225测试全通过
 - Windows 更新可靠性修复: `electron/main.js` 为 Win/Linux 增加 electron-updater 失败回退 GitHub Releases API（覆盖 latest.yml 缺失等元数据错误），恢复更新提示可见性
 - CI 发布产物补全: `.github/workflows/release.yml` 上传 `latest*.yml` 与 `*.blockmap`，修复 Windows 应用内更新检查失败
 - 文档补充: 新增 `docs/electron/01-windows-auto-update-reliability.md`，明确更新链路、边界与排障点
@@ -77,12 +81,11 @@
 - 设置页新增"关于与更新"卡片: Settings.tsx 添加 AboutAndUpdate 组件，显示版本号/平台信息，提供手动"检查更新"按钮（调用 electronAPI IPC）；已清理 main.js 中的模拟弹窗测试代码
 
 ## [In Progress]
-- 验证下一次 tag release 后 Windows 安装包是否可正常拉取 `latest.yml` 并触发应用内更新
+- 无
 
 ## [Next Steps]
 1. 触发一次新 tag 发布，验证 Release 同步包含 `latest*.yml` 与 `*.blockmap`
-2. Windows 客户端安装旧版本后手动检查更新，确认出现更新提示并可完成下载/安装
-3. 验证 Release 资产仍保持三端安装包（`.dmg` / `-setup.exe` / `.AppImage`）
+2. 验证 Windows 安装包拉取 `latest.yml` 并触发应用内更新
 
 ## [Key Decisions / Context]
 - LLM 厂商注册表: 13 个厂商（openai/anthropic/deepseek/zhipu/minimax/xai/mistral/groq/openrouter/dashscope/baichuan/gemini/ollama），支持厂商切换自动填充 Base URL + 静态模型列表 + API 模型发现

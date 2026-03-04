@@ -97,7 +97,7 @@ async function resolvePlatforms() {
     choices: [
       { name: "macOS (DMG)", value: "mac", checked: current === "mac" },
       { name: "Windows (NSIS Setup)", value: "win", checked: current === "win" },
-      { name: "Linux (AppImage)", value: "linux", checked: current === "linux" },
+      { name: "Linux (deb)", value: "linux", checked: current === "linux" },
     ],
   });
 

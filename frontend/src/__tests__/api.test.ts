@@ -334,6 +334,7 @@ describe("LLM 配置接口", () => {
     });
     await createLlmConfig({
       name: "Test",
+      provider: "openai",
       model: "gpt-4",
       api_key: "sk-xxx",
       base_url: "https://api.openai.com/v1",

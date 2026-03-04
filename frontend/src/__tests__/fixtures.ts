@@ -114,6 +114,7 @@ export function createLlmConfig(overrides: Partial<LlmConfig> = {}): LlmConfig {
   return {
     id: "llm-001",
     name: "GPT-4o-mini",
+    provider: "openai",
     model: "gpt-4o-mini",
     api_key: "sk-test-key",
     base_url: "https://api.openai.com/v1",

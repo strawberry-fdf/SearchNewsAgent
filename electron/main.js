@@ -20,6 +20,15 @@ const { autoUpdater } = require("electron-updater");
 
 // ─── 常量 ────────────────────────────────────────────────────
 const isDev = !app.isPackaged;
+if (process.platform === "linux") {
+  app.disableHardwareAcceleration();
+  // 修复 Linux deb 安装后点击菜单图标无反应：
+  // 许多 Ubuntu 系统禁用了 unprivileged user namespaces，
+  // 而 deb 安装的 chrome-sandbox 无 SUID 位，导致 Chromium 沙箱初始化
+  // 静默失败、进程直接退出。与 VS Code / Discord 等主流 Electron 应用一致，
+  // 在 Linux 上禁用沙箱以保证可靠启动。
+  app.commandLine.appendSwitch("no-sandbox");
+}
 const BACKEND_PORT = 8000;
 const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 const HEALTH_CHECK_URL = `${BACKEND_URL}/api/stats`;
@@ -214,9 +223,26 @@ function createMainWindow() {
     },
   });
 
+  let hasShownWindow = false;
+  const showWindowSafely = () => {
+    if (!mainWindow || mainWindow.isDestroyed() || hasShownWindow) return;
+    mainWindow.show();
+    hasShownWindow = true;
+  };
+
   // 窗口准备就绪后显示，避免白屏闪烁
   mainWindow.once("ready-to-show", () => {
-    mainWindow.show();
+    showWindowSafely();
+  });
+
+  // 某些 Linux 环境下 ready-to-show 可能不触发，增加兜底显示避免“无反应”
+  setTimeout(() => {
+    showWindowSafely();
+  }, 6000);
+
+  mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
+    log(`页面加载失败: code=${errorCode}, desc=${errorDescription}, url=${validatedURL}`);
+    showWindowSafely();
   });
 
   // 外部链接用系统浏览器打开
@@ -420,7 +446,11 @@ function buildAppMenu() {
 
 app.whenReady().then(async () => {
   buildAppMenu();
-  createTray();
+  try {
+    createTray();
+  } catch (err) {
+    log(`托盘初始化失败，继续启动主窗口: ${err.message}`);
+  }
   const win = createMainWindow();
 
   if (isDev) {
@@ -452,6 +482,17 @@ app.whenReady().then(async () => {
   }
 
   app.on("activate", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (!mainWindow.isVisible()) {
+        mainWindow.show();
+      }
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      mainWindow.focus();
+      return;
+    }
+
     if (BrowserWindow.getAllWindows().length === 0) {
       createMainWindow();
     }
@@ -481,6 +522,9 @@ if (!gotTheLock) {
 } else {
   app.on("second-instance", () => {
     if (mainWindow) {
+      if (!mainWindow.isVisible()) {
+        mainWindow.show();
+      }
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
     }

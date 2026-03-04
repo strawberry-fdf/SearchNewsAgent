@@ -4,7 +4,7 @@
  */
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import {
   Settings2,
   Plus,
@@ -41,8 +41,6 @@ import {
   getCacheStats,
   clearCache,
   getLlmConfigs,
-  getLlmProviders,
-  discoverProviderModels,
   createLlmConfig,
   updateLlmConfig,
   activateLlmConfig,
@@ -53,7 +51,6 @@ import {
   type CacheStats,
   type CacheSourceStat,
   type LlmConfig,
-  type LlmProvider,
 } from "@/lib/api";
 import { useTheme } from "./ThemeProvider";
 
@@ -269,13 +266,9 @@ export default function Settings() {
 
   // LLM 配置状态（多配置单激活）
   const [llmConfigs, setLlmConfigs] = useState<LlmConfig[]>([]);
-  const [llmProviders, setLlmProviders] = useState<LlmProvider[]>([]);
-  const [providerModels, setProviderModels] = useState<string[]>([]);
-  const [discoveringModels, setDiscoveringModels] = useState(false);
-  const [discoverError, setDiscoverError] = useState<string | null>(null);
   const [showLlmConfigModal, setShowLlmConfigModal] = useState(false);
   const [editingLlmConfig, setEditingLlmConfig] = useState<LlmConfig | null>(null);
-  const [llmConfigForm, setLlmConfigForm] = useState({ name: "", provider: "openai", model: "", api_key: "", base_url: "" });
+  const [llmConfigForm, setLlmConfigForm] = useState({ name: "", model: "", api_key: "", base_url: "" });
   const [llmConfigSaving, setLlmConfigSaving] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
 
@@ -319,10 +312,9 @@ export default function Settings() {
     } finally {
       setLoading(false);
     }
-    // Load cache stats, LLM configs and providers in parallel (non-blocking)
+    // Load cache stats and LLM configs in parallel (non-blocking)
     loadCacheStats();
     loadLlmConfigs();
-    loadLlmProviders();
   }
 
   async function loadLlmConfigs() {
@@ -331,52 +323,6 @@ export default function Settings() {
       setLlmConfigs(lc.items);
     } catch (err) {
       console.error(err);
-    }
-  }
-
-  async function loadLlmProviders() {
-    try {
-      const res = await getLlmProviders();
-      setLlmProviders(res.items);
-    } catch (err) {
-      console.error(err);
-    }
-  }
-
-  const handleProviderChange = useCallback((providerKey: string) => {
-    const spec = llmProviders.find((p) => p.provider === providerKey);
-    setLlmConfigForm((f) => ({
-      ...f,
-      provider: providerKey,
-      base_url: spec?.default_base_url ?? "",
-      model: "",
-    }));
-    // 自动填充静态模型列表
-    setProviderModels(spec?.static_models ?? []);
-    setDiscoverError(null);
-  }, [llmProviders]);
-
-  async function handleDiscoverModels() {
-    const provider = llmConfigForm.provider;
-    const apiKey = llmConfigForm.api_key.trim();
-    if (!provider) return;
-    setDiscoveringModels(true);
-    setDiscoverError(null);
-    try {
-      const res = await discoverProviderModels(provider, {
-        api_key: apiKey,
-        base_url: llmConfigForm.base_url.trim() || undefined,
-      });
-      if (res.error) {
-        setDiscoverError(res.error);
-      }
-      if (res.models.length > 0) {
-        setProviderModels(res.models);
-      }
-    } catch (err) {
-      setDiscoverError(err instanceof Error ? err.message : "模型发现失败");
-    } finally {
-      setDiscoveringModels(false);
     }
   }
 
@@ -465,7 +411,6 @@ export default function Settings() {
         // 编辑现有配置
         await updateLlmConfig(editingLlmConfig.id, {
           name,
-          provider: llmConfigForm.provider,
           model: llmConfigForm.model.trim(),
           api_key: llmConfigForm.api_key.trim(),
           base_url: llmConfigForm.base_url.trim(),
@@ -473,7 +418,7 @@ export default function Settings() {
         setLlmConfigs((prev) =>
           prev.map((c) =>
             c.id === editingLlmConfig.id
-              ? { ...c, name, provider: llmConfigForm.provider, model: llmConfigForm.model.trim(), api_key: llmConfigForm.api_key.trim(), base_url: llmConfigForm.base_url.trim() }
+              ? { ...c, name, model: llmConfigForm.model.trim(), api_key: llmConfigForm.api_key.trim(), base_url: llmConfigForm.base_url.trim() }
               : c
           )
         );
@@ -481,7 +426,7 @@ export default function Settings() {
         // 创建新配置
         const res = await createLlmConfig({
           name,
-          provider: llmConfigForm.provider,
+          provider: "openai",
           model: llmConfigForm.model.trim(),
           api_key: llmConfigForm.api_key.trim(),
           base_url: llmConfigForm.base_url.trim(),
@@ -489,7 +434,7 @@ export default function Settings() {
         const newConfig: LlmConfig = {
           id: res.id,
           name,
-          provider: llmConfigForm.provider,
+          provider: "openai",
           model: llmConfigForm.model.trim(),
           api_key: llmConfigForm.api_key.trim(),
           base_url: llmConfigForm.base_url.trim(),
@@ -500,10 +445,8 @@ export default function Settings() {
       }
       setShowLlmConfigModal(false);
       setEditingLlmConfig(null);
-      setLlmConfigForm({ name: "", provider: "openai", model: "", api_key: "", base_url: "" });
+      setLlmConfigForm({ name: "", model: "", api_key: "", base_url: "" });
       setShowApiKey(false);
-      setProviderModels([]);
-      setDiscoverError(null);
     } catch (err) {
       console.error(err);
     } finally {
@@ -514,31 +457,22 @@ export default function Settings() {
   function openLlmConfigModal(config?: LlmConfig) {
     if (config) {
       setEditingLlmConfig(config);
-      const providerKey = config.provider || "openai";
       setLlmConfigForm({
         name: config.name,
-        provider: providerKey,
         model: config.model,
         api_key: config.api_key,
         base_url: config.base_url,
       });
-      // 加载该 provider 的静态模型作为初始选项
-      const spec = llmProviders.find((p) => p.provider === providerKey);
-      setProviderModels(spec?.static_models ?? []);
     } else {
       setEditingLlmConfig(null);
-      const defaultProvider = llmProviders.length > 0 ? llmProviders[0] : null;
       setLlmConfigForm({
         name: "",
-        provider: defaultProvider?.provider ?? "openai",
         model: "",
         api_key: "",
-        base_url: defaultProvider?.default_base_url ?? "",
+        base_url: "",
       });
-      setProviderModels(defaultProvider?.static_models ?? []);
     }
     setShowApiKey(false);
-    setDiscoverError(null);
     setShowLlmConfigModal(true);
   }
 
@@ -1127,7 +1061,7 @@ export default function Settings() {
                 {editingLlmConfig ? "编辑大模型配置" : "新建大模型配置"}
               </h3>
               <button
-                onClick={() => { setShowLlmConfigModal(false); setEditingLlmConfig(null); setShowApiKey(false); setProviderModels([]); setDiscoverError(null); }}
+                onClick={() => { setShowLlmConfigModal(false); setEditingLlmConfig(null); setShowApiKey(false); }}
                 className="p-1 rounded-lg hover:bg-dark-surface text-dark-muted hover:text-dark-text transition-colors"
               >
                 <X size={18} />
@@ -1136,25 +1070,6 @@ export default function Settings() {
 
             {/* Form */}
             <div className="space-y-4">
-              {/* 厂商选择 */}
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">厂商</label>
-                <select
-                  value={llmConfigForm.provider}
-                  onChange={(e) => handleProviderChange(e.target.value)}
-                  className="w-full bg-dark-surface border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent transition-colors"
-                >
-                  {llmProviders.map((p) => (
-                    <option key={p.provider} value={p.provider}>
-                      {p.label}
-                    </option>
-                  ))}
-                  {llmProviders.length === 0 && (
-                    <option value="openai">OpenAI</option>
-                  )}
-                </select>
-              </div>
-
               {/* 配置名称 */}
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">配置名称</label>
@@ -1163,7 +1078,7 @@ export default function Settings() {
                   type="text"
                   value={llmConfigForm.name}
                   onChange={(e) => setLlmConfigForm((f) => ({ ...f, name: e.target.value }))}
-                  placeholder={`例: ${llmProviders.find(p => p.provider === llmConfigForm.provider)?.label ?? 'My'} 配置`}
+                  placeholder="例: My 配置"
                   className="w-full bg-dark-surface border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent transition-colors"
                 />
               </div>
@@ -1196,78 +1111,21 @@ export default function Settings() {
                   type="text"
                   value={llmConfigForm.base_url}
                   onChange={(e) => setLlmConfigForm((f) => ({ ...f, base_url: e.target.value }))}
-                  placeholder={llmProviders.find(p => p.provider === llmConfigForm.provider)?.default_base_url ?? "https://api.openai.com/v1"}
+                  placeholder="https://api.openai.com/v1"
                   className="w-full bg-dark-surface border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent transition-colors placeholder:text-dark-muted/60 font-mono"
                 />
-                <p className="text-xs text-dark-muted">切换厂商自动填充默认地址，也可手动修改</p>
               </div>
 
-              {/* 模型选择 + 发现 */}
+              {/* 模型 */}
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium">模型</label>
-                  <button
-                    onClick={handleDiscoverModels}
-                    disabled={discoveringModels}
-                    className="flex items-center gap-1 text-xs text-dark-accent hover:text-dark-accent/80 disabled:opacity-50 transition-colors"
-                    title="从 API 拉取可用模型列表"
-                  >
-                    {discoveringModels ? (
-                      <Loader2 size={12} className="animate-spin" />
-                    ) : (
-                      <RefreshCw size={12} />
-                    )}
-                    {discoveringModels ? "发现中..." : "发现模型"}
-                  </button>
-                </div>
-
-                {/* 模型下拉 + 手动输入 */}
-                <div className="relative">
-                  <input
-                    type="text"
-                    list="provider-models-list"
-                    value={llmConfigForm.model}
-                    onChange={(e) => setLlmConfigForm((f) => ({ ...f, model: e.target.value }))}
-                    placeholder="选择或输入模型名称..."
-                    className="w-full bg-dark-surface border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent transition-colors placeholder:text-dark-muted/60 font-mono"
-                  />
-                  <datalist id="provider-models-list">
-                    {providerModels.map((m) => (
-                      <option key={m} value={m} />
-                    ))}
-                  </datalist>
-                </div>
-
-                {/* 快捷模型标签 */}
-                {providerModels.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    {providerModels.slice(0, 8).map((m) => (
-                      <button
-                        key={m}
-                        onClick={() => setLlmConfigForm((f) => ({ ...f, model: m }))}
-                        className={clsx(
-                          "px-2 py-0.5 rounded-md text-xs border transition-colors",
-                          llmConfigForm.model === m
-                            ? "bg-dark-accent/20 border-dark-accent/40 text-dark-accent"
-                            : "bg-dark-surface border-dark-border text-dark-muted hover:text-dark-text hover:border-dark-accent/30"
-                        )}
-                      >
-                        {m}
-                      </button>
-                    ))}
-                    {providerModels.length > 8 && (
-                      <span className="px-2 py-0.5 text-xs text-dark-muted">+{providerModels.length - 8} 更多</span>
-                    )}
-                  </div>
-                )}
-
-                {/* 发现错误提示 */}
-                {discoverError && (
-                  <p className="text-xs text-orange-400 flex items-center gap-1">
-                    <AlertTriangle size={12} />
-                    {discoverError}
-                  </p>
-                )}
+                <label className="text-sm font-medium">模型</label>
+                <input
+                  type="text"
+                  value={llmConfigForm.model}
+                  onChange={(e) => setLlmConfigForm((f) => ({ ...f, model: e.target.value }))}
+                  placeholder="输入模型名称，例: gpt-4o"
+                  className="w-full bg-dark-surface border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent transition-colors placeholder:text-dark-muted/60 font-mono"
+                />
               </div>
             </div>
 
@@ -1286,26 +1144,11 @@ export default function Settings() {
                 {editingLlmConfig ? "保存修改" : "创建"}
               </button>
               <button
-                onClick={() => { setShowLlmConfigModal(false); setEditingLlmConfig(null); setShowApiKey(false); setProviderModels([]); setDiscoverError(null); }}
+                onClick={() => { setShowLlmConfigModal(false); setEditingLlmConfig(null); setShowApiKey(false); }}
                 className="px-4 py-2 rounded-lg border border-dark-border text-sm text-dark-muted hover:text-dark-text transition-colors"
               >
                 取消
               </button>
-              {/* 文档链接 */}
-              {(() => {
-                const spec = llmProviders.find(p => p.provider === llmConfigForm.provider);
-                return spec?.docs_url ? (
-                  <a
-                    href={spec.docs_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="ml-auto flex items-center gap-1 text-xs text-dark-muted hover:text-dark-accent transition-colors"
-                  >
-                    <Info size={12} />
-                    API 文档
-                  </a>
-                ) : null;
-              })()}
             </div>
           </div>
         </div>

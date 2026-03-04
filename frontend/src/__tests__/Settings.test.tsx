@@ -191,7 +191,7 @@ describe("Settings — LLM 配置", () => {
     await waitFor(() => {
       // Modal 标题 "新建大模型配置" 和配置名称 placeholder
       expect(screen.getByText("新建大模型配置")).toBeInTheDocument();
-      expect(screen.getByPlaceholderText(/GPT-4o-mini/)).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/例:.*配置/)).toBeInTheDocument();
     });
   });
 

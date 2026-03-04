@@ -96,11 +96,13 @@ nsis:
 # ── Linux 配置 ────────────────────────────────────────────────
 linux:
   target:
-    - target: AppImage
+    - target: deb
       arch:
         - x64
   category: "Utility;Network"
   artifactName: "${productName}-${version}-linux-${arch}.${ext}"
+  executableArgs:
+    - "--no-sandbox"
   desktop:
     Name: "AgentNews"
     Comment: "AI 智能资讯精选系统"
@@ -108,8 +110,8 @@ linux:
     Type: Application
     Categories: "Utility;Network"
 
-appImage:
-  artifactName: "${productName}-${version}.AppImage"
+deb:
+  artifactName: "${productName}-${version}-linux-${arch}.deb"
 
 # ── 发布配置（GitHub Releases） ───────────────────────────────
 # 通过 git tag (v*) 触发 CI 构建并上传到 GitHub Releases
