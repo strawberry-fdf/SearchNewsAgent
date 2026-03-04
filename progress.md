@@ -1,4 +1,10 @@
 ## [Completed]
+- **RSS 解析完备性修复 + JSON Feed 支持**: 移除 `_MAX_ENTRIES_PER_FEED=30` 硬性截断，所有 feed entries 全量解析；修复 `fetch_since` 过滤逻辑——无日期条目不再被错误跳过（无法判定为旧则放行）；新增 JSON Feed 1.0/1.1 格式自动检测与解析；`_parse_date` 增加 ISO 字符串回退；后端 309 测试 + 前端 225 测试全通过
+- **信源自定义抓取频率**: 基于已有 `fetch_interval_minutes` 字段实现完整的信源级别更新间隔控制——pipeline 新增 `respect_source_intervals` 参数，定时调度时检查每个信源的 `last_fetched_at + interval` 跳过未到期信源，手动触发仍抓取全部；APScheduler tick 间隔缩短至 5 分钟确保短间隔信源被及时轮询；前端 SourceManager 新增更新频率选择器（5分钟~24小时）支持添加和内联编辑
+- **模型配置拦截逻辑**: 开启 AI 分析前校验是否存在已激活且完整（api_key/model/base_url）的 LLM 配置，缺失时前端弹出红色提示并阻止开启，后端 update_settings 同步 400 校验；前端 225 测试 + 后端 286 测试全通过
+- **无规则时的处理策略**: Pipeline 启动时检测无激活筛选预设且无自定义 filter_prompt 时进入 no_rules_mode，跳过规则引擎/评分，所有文章标记 `unfiltered=true` 直接入库；前端 ArticleCard 对 unfiltered 文章显示灰色"默认/未筛选"徽章替代评分
+- **采集任务控制（停止按钮）**: 新增 `POST /api/admin/stop-pipeline` 端点设置 cancel_requested 标志，pipeline.py 在三处循环中检查取消信号并提前返回；StatsPanel 运行中显示红色"停止更新"按钮，点击后标记 stopping 状态
+- **新增信源联动自动同步**: SourceManager 添加信源成功后自动调用 triggerPipeline() 启动采集，页面右上角显示 4 秒自动消失的 toast 提示"信源已添加，正在自动同步..."
 - Linux 启动稳健性增强：`electron/main.js` 增加 Linux `disableHardwareAcceleration`、`ready-to-show` 6s 兜底显示、`did-fail-load` 强制显示，以及托盘初始化失败降级不阻断主窗口启动
 - Linux deb 桌面图标启动修复（--no-sandbox）：排查确认 deb 安装的 chrome-sandbox 无 SUID 位，在 unprivileged userns 被禁的系统上 Chromium 沙箱静默失败导致进程直接退出；`electron/main.js` 添加 `app.commandLine.appendSwitch('no-sandbox')`，`electron-builder.yml` 添加 `executableArgs: ['--no-sandbox']` 确保 .desktop Exec 行包含该参数；与 VS Code / Discord 等主流 Electron 应用策略一致
 - Linux 打包格式改为 deb: electron-builder.yml 目标从 AppImage 改为 deb；同步更新 CI release.yml 产物匹配、build.mjs 选项标签、README/README_EN 文档
@@ -84,8 +90,9 @@
 - 无
 
 ## [Next Steps]
-1. 触发一次新 tag 发布，验证 Release 同步包含 `latest*.yml` 与 `*.blockmap`
-2. 验证 Windows 安装包拉取 `latest.yml` 并触发应用内更新
+1. 端到端验证 RSS 解析修复与 JSON Feed 在实际信源上的表现
+2. 端到端验证信源自定义更新频率在定时调度下的行为
+3. 触发一次新 tag 发布，验证 Release 同步包含 `latest*.yml` 与 `*.blockmap`
 
 ## [Key Decisions / Context]
 - LLM 厂商注册表: 13 个厂商（openai/anthropic/deepseek/zhipu/minimax/xai/mistral/groq/openrouter/dashscope/baichuan/gemini/ollama），支持厂商切换自动填充 Base URL + 静态模型列表 + API 模型发现

@@ -51,10 +51,13 @@ scheduler = AsyncIOScheduler()
 
 
 async def _scheduled_pipeline():
-    """定时任务回调：执行完整采集 → 分析 → 过滤 → 推送流水线。"""
+    """
+    定时任务回调：执行完整采集 → 分析 → 过滤 → 推送流水线。
+    启用 respect_source_intervals 让每个信源按自己的更新频率被采集。
+    """
     logger.info("⏰ Scheduled pipeline run triggered.")
     try:
-        stats = await run_ingestion_pipeline()
+        stats = await run_ingestion_pipeline(respect_source_intervals=True)
         logger.info("⏰ Scheduled pipeline finished: %s", stats)
     except Exception as exc:
         logger.error("⏰ Scheduled pipeline error: %s", exc, exc_info=True)
@@ -71,16 +74,21 @@ async def lifespan(app: FastAPI):
     await get_db()
     logger.info("🚀 AgentNews backend started.")
 
-    # Start scheduler
+    # Start scheduler — tick every 5 minutes to check per-source intervals.
+    # Each source's own fetch_interval_minutes determines its actual update rate.
+    _scheduler_tick_minutes = min(5, settings.FETCH_INTERVAL_MINUTES)
     scheduler.add_job(
         _scheduled_pipeline,
-        trigger=IntervalTrigger(minutes=settings.FETCH_INTERVAL_MINUTES),
+        trigger=IntervalTrigger(minutes=_scheduler_tick_minutes),
         id="ingestion_pipeline",
         name="Periodic ingestion pipeline",
         replace_existing=True,
     )
     scheduler.start()
-    logger.info("⏰ Scheduler started (interval=%d min).", settings.FETCH_INTERVAL_MINUTES)
+    logger.info(
+        "⏰ Scheduler started (tick=%d min, per-source intervals respected).",
+        _scheduler_tick_minutes,
+    )
 
     yield
 

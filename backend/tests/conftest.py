@@ -85,6 +85,7 @@ def make_source():
         enabled: bool = True,
         category: str = "",
         fetch_since: str | None = None,
+        fetch_interval_minutes: int = 30,
     ) -> Dict[str, Any]:
         return {
             "name": name,
@@ -92,7 +93,7 @@ def make_source():
             "source_type": source_type,
             "tags": tags or [],
             "enabled": enabled,
-            "fetch_interval_minutes": 30,
+            "fetch_interval_minutes": fetch_interval_minutes,
             "category": category,
             "fetch_since": fetch_since,
         }

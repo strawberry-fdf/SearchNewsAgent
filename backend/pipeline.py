@@ -34,6 +34,9 @@ async def run_ingestion_pipeline(
     progress_cb: Optional[Callable[[str], None]] = None,
     filter_prompt: str = "",
     use_custom_rules: bool = False,
+    no_rules_mode: bool = False,
+    cancel_check: Optional[Callable[[], bool]] = None,
+    respect_source_intervals: bool = False,
 ) -> Dict[str, int]:
     """
     执行完整采集流水线。
@@ -48,6 +51,15 @@ async def run_ingestion_pipeline(
     use_custom_rules : bool
         当用户激活了自定义筛选规则预设时为 True，此时仅使用
         LLM 的 model_selected 作为唯一筛选依据，跳过硬编码规则引擎。
+    no_rules_mode : bool
+        当用户未定义任何筛选/打分规则时为 True，此时跳过自动打分
+        和优先级筛选步骤，文章直接入选，分值项标记为"默认/未筛选"。
+    cancel_check : callable, optional
+        返回 True 时终止采集流水线，用于实现用户手动中止。
+    respect_source_intervals : bool
+        当为 True 时（仅定时调度使用），检查每个信源的
+        fetch_interval_minutes 与 last_fetched_at，跳过尚未到达
+        更新间隔的信源。手动触发时保持 False，抓取所有启用信源。
 
     Returns
     -------
@@ -71,12 +83,36 @@ async def run_ingestion_pipeline(
     emit(f"🚀 开始采集，共 {len(sources)} 个信源")
 
     # ── Step 2: 遍历信源，抓取新文章并去重入库 ──
+    skipped_interval = 0
     for source in sources:
+        if cancel_check and cancel_check():
+            emit("⏹️ 采集已人工中止，当前已加载 %d 条数据" % stats["fetched"])
+            return stats
         source_type = source.get("source_type", "rss")
         source_url = source["url"]
         source_id = str(source.get("id", ""))
         source_name = source.get("name", "")
         source_tags = source.get("tags") or []
+
+        # ── 按信源更新间隔跳过尚未到期的信源（仅定时调度启用） ──
+        if respect_source_intervals:
+            interval_min = source.get("fetch_interval_minutes") or 30
+            last_fetched_str = source.get("last_fetched_at")
+            if last_fetched_str:
+                try:
+                    last_fetched = datetime.fromisoformat(last_fetched_str) if isinstance(last_fetched_str, str) else last_fetched_str
+                    if last_fetched.tzinfo is None:
+                        last_fetched = last_fetched.replace(tzinfo=timezone.utc)
+                    elapsed = (datetime.now(timezone.utc) - last_fetched).total_seconds() / 60
+                    if elapsed < interval_min:
+                        skipped_interval += 1
+                        logger.debug(
+                            "Skipping %s (interval %d min, elapsed %.1f min)",
+                            source_name, interval_min, elapsed,
+                        )
+                        continue
+                except Exception:
+                    pass  # parse error → fetch anyway
 
         try:
             emit(f"📡 正在抓取: {source_name}")
@@ -110,10 +146,15 @@ async def run_ingestion_pipeline(
             stats["errors"] += 1
 
     emit(f"📥 抓取完成: 新增 {stats['fetched']} 篇，重复 {stats['duplicates']} 篇")
+    if skipped_interval > 0:
+        emit(f"⏭️ 已跳过 {skipped_interval} 个信源（未到更新间隔）")
 
     # ── Step 3 & 4: LLM 分析 + 规则引擎过滤 ──
     pending = await db.get_pending_articles(limit=100)
     emit(f"🤖 待分析文章: {len(pending)} 篇")
+
+    if no_rules_mode:
+        emit("📋 未定义筛选规则 – 跳过自动打分与优先级筛选")
 
     app_settings = await db.get_settings()
     llm_enabled: bool = app_settings.get("llm_enabled", True)
@@ -123,18 +164,26 @@ async def run_ingestion_pipeline(
     if not llm_enabled:
         emit("⚡ LLM 已关闭 – 全部文章直接入选")
         for doc in pending:
+            if cancel_check and cancel_check():
+                emit("⏹️ 采集已人工中止，当前已加载 %d 条数据" % stats["fetched"])
+                return stats
             raw_title = doc.get("raw_title") or doc.get("title") or doc.get("url", "")
             await db.update_article(doc["url_hash"], {
                 "status": "selected",
                 "rejection_reason": "",
                 "analyzed_at": datetime.now(timezone.utc),
                 "title": raw_title,
+                "analysis": {"unfiltered": True},
             })
             stats["selected"] += 1
         emit(f"✅ 完成 (LLM 关闭): 抓取={stats['fetched']}, 入选={stats['selected']}")
         return stats
 
     for idx, doc in enumerate(pending, 1):
+        if cancel_check and cancel_check():
+            emit("⏹️ 采集已人工中止，当前已加载 %d 条数据" % stats["fetched"])
+            return stats
+
         content = doc.get("clean_markdown") or doc.get("raw_html", "")
         h = doc["url_hash"]
         title_preview = (doc.get("raw_title") or doc.get("url", ""))[:60]
@@ -175,9 +224,14 @@ async def run_ingestion_pipeline(
                     source_tags = s.get("tags") or []
                     break
 
-        # 自定义筛选规则激活时，仅使用 LLM 的 model_selected 作为唯一筛选依据；
-        # 否则走硬编码四步规则引擎（默认行为）
-        if use_custom_rules:
+        # 筛选分支:
+        # 1. 无规则模式: 跳过打分与筛选，全部直接入选
+        # 2. 自定义筛选规则: 仅使用 LLM model_selected
+        # 3. 默认: 硬编码四步规则引擎
+        if no_rules_mode:
+            status, reason = "selected", ""
+            analysis_dict["unfiltered"] = True
+        elif use_custom_rules:
             if analysis_dict.get("model_selected", False):
                 status, reason = "selected", ""
             else:

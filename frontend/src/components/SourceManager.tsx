@@ -19,6 +19,7 @@ import {
   Check,
   X,
   FolderPlus,
+  Clock,
 } from "lucide-react";
 import clsx from "clsx";
 import {
@@ -26,6 +27,7 @@ import {
   addSource,
   deleteSource,
   updateSource,
+  triggerPipeline,
   type Source,
 } from "@/lib/api";
 
@@ -115,11 +117,33 @@ function InlineEdit({
 
 // ── Source row ──
 
+const INTERVAL_OPTIONS = [
+  { label: "5 分钟", value: 5 },
+  { label: "10 分钟", value: 10 },
+  { label: "15 分钟", value: 15 },
+  { label: "30 分钟", value: 30 },
+  { label: "1 小时", value: 60 },
+  { label: "2 小时", value: 120 },
+  { label: "6 小时", value: 360 },
+  { label: "12 小时", value: 720 },
+  { label: "24 小时", value: 1440 },
+];
+
+function formatInterval(minutes: number): string {
+  const opt = INTERVAL_OPTIONS.find((o) => o.value === minutes);
+  if (opt) return opt.label;
+  if (minutes < 60) return `${minutes} 分钟`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m ? `${h} 小时 ${m} 分` : `${h} 小时`;
+}
+
 function SourceRow({
   source,
   onToggleEnabled,
   onUpdateCategory,
   onUpdateFetchSince,
+  onUpdateFetchInterval,
   onUpdateUrl,
   onDelete,
 }: {
@@ -127,11 +151,14 @@ function SourceRow({
   onToggleEnabled: (id: string, enabled: boolean) => void;
   onUpdateCategory: (id: string, category: string) => void;
   onUpdateFetchSince: (id: string, fetchSince: string | null) => void;
+  onUpdateFetchInterval: (id: string, minutes: number) => void;
   onUpdateUrl: (id: string, url: string) => void;
   onDelete: (url: string) => void;
 }) {
   const [editingSince, setEditingSince] = useState(false);
   const [sinceDraft, setSinceDraft] = useState(source.fetch_since?.split("T")[0] ?? "");
+  const [editingInterval, setEditingInterval] = useState(false);
+  const [intervalDraft, setIntervalDraft] = useState(source.fetch_interval_minutes || 30);
 
   function saveFetchSince() {
     onUpdateFetchSince(source.id, sinceDraft.trim() || null);
@@ -211,6 +238,47 @@ function SourceRow({
             </button>
           )}
         </div>
+        <div className="mt-1 flex items-center gap-1 text-xs text-dark-muted">
+          <Clock size={11} className="opacity-60" />
+          <span>更新频率：</span>
+          {editingInterval ? (
+            <span className="flex items-center gap-1">
+              <select
+                value={intervalDraft}
+                onChange={(e) => setIntervalDraft(Number(e.target.value))}
+                className="bg-dark-surface border border-dark-accent rounded px-2 py-0.5 text-xs focus:outline-none"
+              >
+                {INTERVAL_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => {
+                  onUpdateFetchInterval(source.id, intervalDraft);
+                  setEditingInterval(false);
+                }}
+                className="text-emerald-400 hover:text-emerald-300"
+              >
+                <Check size={12} />
+              </button>
+              <button onClick={() => setEditingInterval(false)} className="text-dark-muted hover:text-dark-text">
+                <X size={12} />
+              </button>
+            </span>
+          ) : (
+            <button
+              onClick={() => {
+                setIntervalDraft(source.fetch_interval_minutes || 30);
+                setEditingInterval(true);
+              }}
+              className="cursor-pointer hover:text-dark-accent transition-colors flex items-center gap-1"
+              title="点击设置更新频率"
+            >
+              {formatInterval(source.fetch_interval_minutes || 30)}
+              <Pencil size={11} className="opacity-40" />
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex items-center gap-1 flex-shrink-0">
@@ -260,6 +328,7 @@ function CategoryGroup({
   onToggleEnabled,
   onUpdateCategory,
   onUpdateFetchSince,
+  onUpdateFetchInterval,
   onUpdateUrl,
   onDelete,
   onRenameCategory,
@@ -270,6 +339,7 @@ function CategoryGroup({
   onToggleEnabled: (id: string, enabled: boolean) => void;
   onUpdateCategory: (id: string, category: string) => void;
   onUpdateFetchSince: (id: string, fetchSince: string | null) => void;
+  onUpdateFetchInterval: (id: string, minutes: number) => void;
   onUpdateUrl: (id: string, url: string) => void;
   onDelete: (url: string) => void;
   onRenameCategory: (oldName: string, newName: string) => void;
@@ -311,6 +381,7 @@ function CategoryGroup({
               onToggleEnabled={onToggleEnabled}
               onUpdateCategory={onUpdateCategory}
               onUpdateFetchSince={onUpdateFetchSince}
+              onUpdateFetchInterval={onUpdateFetchInterval}
               onUpdateUrl={onUpdateUrl}
               onDelete={onDelete}
             />
@@ -327,6 +398,7 @@ export default function SourceManager() {
   const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
+  const [syncToast, setSyncToast] = useState<string | null>(null);
 
   // Add form state
   const [newName, setNewName] = useState("");
@@ -335,6 +407,7 @@ export default function SourceManager() {
   const [newTags, setNewTags] = useState("");
   const [newCategory, setNewCategory] = useState("");
   const [newFetchSince, setNewFetchSince] = useState("");
+  const [newFetchInterval, setNewFetchInterval] = useState(30);
 
   useEffect(() => {
     loadSources();
@@ -362,10 +435,25 @@ export default function SourceManager() {
         tags: newTags.split(",").map((t) => t.trim()).filter(Boolean),
         category: newCategory.trim(),
         fetch_since: newFetchSince.trim() || null,
+        fetch_interval_minutes: newFetchInterval,
       });
-      setNewName(""); setNewUrl(""); setNewTags(""); setNewCategory(""); setNewFetchSince("");
+      setNewName(""); setNewUrl(""); setNewTags(""); setNewCategory(""); setNewFetchSince(""); setNewFetchInterval(30);
       setShowAdd(false);
       await loadSources();
+
+      // 添加成功后自动触发即时同步
+      try {
+        const res = await triggerPipeline();
+        if (res.status === "started") {
+          setSyncToast("✅ 信源已添加，正在自动同步...");
+        } else if (res.status === "already_running") {
+          setSyncToast("✅ 信源已添加，采集任务正在运行中");
+        }
+        setTimeout(() => setSyncToast(null), 4000);
+      } catch {
+        setSyncToast("✅ 信源已添加，自动同步触发失败，可手动采集");
+        setTimeout(() => setSyncToast(null), 4000);
+      }
     } catch (err) {
       console.error(err);
     }
@@ -409,6 +497,17 @@ export default function SourceManager() {
       await updateSource(id, { url });
       setSources((prev) =>
         prev.map((s) => (s.id === id ? { ...s, url } : s))
+      );
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleUpdateFetchInterval(id: string, minutes: number) {
+    try {
+      await updateSource(id, { fetch_interval_minutes: minutes });
+      setSources((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, fetch_interval_minutes: minutes } : s))
       );
     } catch (err) {
       console.error(err);
@@ -461,6 +560,12 @@ export default function SourceManager() {
 
   return (
     <div className="flex-1 max-w-4xl mx-auto px-6 py-8 w-full">
+      {/* Auto-sync toast */}
+      {syncToast && (
+        <div className="fixed top-4 right-4 z-50 bg-dark-card border border-dark-accent/30 rounded-xl px-4 py-3 shadow-lg animate-in fade-in slide-in-from-top-2">
+          <p className="text-sm text-dark-text">{syncToast}</p>
+        </div>
+      )}
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-3">
           <Database size={24} className="text-dark-accent" />
@@ -552,6 +657,21 @@ export default function SourceManager() {
               />
               <p className="text-xs text-dark-muted mt-1">仅处理该日期之后发布的文章</p>
             </div>
+            <div>
+              <label className="text-xs text-dark-muted mb-1 block">
+                更新频率
+              </label>
+              <select
+                value={newFetchInterval}
+                onChange={(e) => setNewFetchInterval(Number(e.target.value))}
+                className="w-full bg-dark-surface border border-dark-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-dark-accent"
+              >
+                {INTERVAL_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+              <p className="text-xs text-dark-muted mt-1">自动采集时按此间隔更新该信源</p>
+            </div>
           </div>
           <div className="flex justify-end gap-3">
             <button
@@ -591,6 +711,7 @@ export default function SourceManager() {
               onToggleEnabled={handleToggleEnabled}
               onUpdateCategory={handleUpdateCategory}
               onUpdateFetchSince={handleUpdateFetchSince}
+              onUpdateFetchInterval={handleUpdateFetchInterval}
               onUpdateUrl={handleUpdateUrl}
               onDelete={handleDelete}
               onRenameCategory={handleRenameCategory}

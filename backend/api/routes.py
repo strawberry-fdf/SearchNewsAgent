@@ -58,6 +58,7 @@ async def _run_pipeline_bg():
     run_id = str(uuid.uuid4())
     started_at = datetime.now(timezone.utc).isoformat()
     _pipeline_state["running"] = True
+    _pipeline_state["cancel_requested"] = False
     _pipeline_state["logs"] = []
     _pipeline_state["stats"] = None
     run_status = "done"
@@ -66,7 +67,9 @@ async def _run_pipeline_bg():
         app_settings = await db.get_settings()
         # Use active preset prompts if available (multi-select), otherwise fall back to manual prompt
         active_presets = await db.get_active_filter_presets()
+        all_presets = await db.get_filter_presets()
         use_custom_rules = False
+        no_rules_mode = False
         if active_presets:
             # Combine all active preset prompts
             preset_prompts = [p.get("prompt", "").strip() for p in active_presets if p.get("prompt", "").strip()]
@@ -80,13 +83,27 @@ async def _run_pipeline_bg():
                 filter_prompt = app_settings.get("llm_filter_prompt", "")
         else:
             filter_prompt = app_settings.get("llm_filter_prompt", "")
+
+        # 无规则模式: 用户未定义任何筛选规则（无预设 + 无默认筛选要求）
+        if not all_presets and not filter_prompt.strip():
+            no_rules_mode = True
+
+        def _cancel_check() -> bool:
+            return bool(_pipeline_state.get("cancel_requested"))
+
         stats = await run_ingestion_pipeline(
             progress_cb=_emit_log,
             filter_prompt=filter_prompt,
             use_custom_rules=use_custom_rules,
+            no_rules_mode=no_rules_mode,
+            cancel_check=_cancel_check,
         )
         _pipeline_state["stats"] = stats
-        _emit_log("__DONE__")
+        if _pipeline_state.get("cancel_requested"):
+            _emit_log("__DONE__")
+            run_status = "cancelled"
+        else:
+            _emit_log("__DONE__")
     except Exception as exc:
         _emit_log(f"__ERROR__ {exc}")
         run_status = "error"
@@ -372,8 +389,32 @@ async def get_settings():
 
 @router.put("/api/settings")
 async def update_settings(body: SettingsUpdate):
-    """更新全局设置。"""
+    """更新全局设置。开启 LLM 时校验大模型配置完整性。"""
     data = body.model_dump(exclude_none=True)
+
+    # 开启 LLM 时，校验是否存在完整的激活配置
+    if data.get("llm_enabled") is True:
+        configs = await db.get_llm_configs()
+        active = [c for c in configs if c.get("is_active")]
+        if not active:
+            raise HTTPException(
+                status_code=400,
+                detail="请先在「设置-模型配置」中创建并激活一个 LLM 配置，否则无法启用 AI 分析。",
+            )
+        cfg = active[0]
+        missing = []
+        if not (cfg.get("api_key") or "").strip():
+            missing.append("API 密钥")
+        if not (cfg.get("model") or "").strip():
+            missing.append("模型名称")
+        if not (cfg.get("base_url") or "").strip():
+            missing.append("接口地址")
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"当前激活的配置「{cfg.get('name', '')}」缺少: {'、'.join(missing)}。请先填写完整再启用。",
+            )
+
     for key, value in data.items():
         await db.set_setting(key, value)
     return await db.get_settings()
@@ -644,6 +685,16 @@ async def run_pipeline():
         return {"status": "already_running"}
     asyncio.create_task(_run_pipeline_bg())
     return {"status": "started"}
+
+
+@router.post("/api/admin/stop-pipeline")
+async def stop_pipeline():
+    """向正在运行的采集流水线发送终止指令。"""
+    if not _pipeline_state["running"]:
+        return {"status": "not_running"}
+    _pipeline_state["cancel_requested"] = True
+    _emit_log("⏹️ 收到停止指令，正在终止采集...")
+    return {"status": "stopping"}
 
 
 @router.get("/api/admin/pipeline-status")

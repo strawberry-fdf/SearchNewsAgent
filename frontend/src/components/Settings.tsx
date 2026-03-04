@@ -393,7 +393,28 @@ export default function Settings() {
 
   // ── LLM setting ──
 
+  const [llmToggleError, setLlmToggleError] = useState<string | null>(null);
+
   async function handleLlmToggle(enabled: boolean) {
+    // 开启时校验大模型配置是否完整
+    if (enabled) {
+      const activeConfig = llmConfigs.find((c) => c.is_active);
+      if (!activeConfig) {
+        setLlmToggleError("请先在下方「大模型配置」中创建并激活一个配置，否则无法启用 AI 分析。");
+        return;
+      }
+      const missing: string[] = [];
+      if (!activeConfig.api_key.trim()) missing.push("API 密钥");
+      if (!activeConfig.model.trim()) missing.push("模型名称");
+      if (!activeConfig.base_url.trim()) missing.push("接口地址");
+      if (missing.length > 0) {
+        setLlmToggleError(`当前激活的配置「${activeConfig.name}」缺少: ${missing.join("、")}。请先在「设置-模型配置」中填写必要的 API 信息，否则无法启用 AI 分析。`);
+        return;
+      }
+      setLlmToggleError(null);
+    } else {
+      setLlmToggleError(null);
+    }
     try {
       const updated = await updateSettings({ llm_enabled: enabled });
       setAppSettings(updated);
@@ -663,6 +684,12 @@ export default function Settings() {
               label="启用 LLM 分析"
               description={appSettings.llm_enabled ? "AI 分析流水线已开启" : "仅抓取原始标题，不消耗 API"}
             />
+          )}
+          {llmToggleError && (
+            <div className="flex items-start gap-2 rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2.5 mt-1">
+              <AlertTriangle size={14} className="text-red-400 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-red-400">{llmToggleError}</p>
+            </div>
           )}
         </SectionCard>
 

@@ -333,8 +333,16 @@ export default function ArticleCard({
         </div>
         {analysis && (
           <div className="flex items-center gap-2">
-            <ScoreBadge score={analysis.importance} label="IMP" size="sm" />
-            <ScoreBadge score={analysis.ai_relevance} label="AI" size="sm" />
+            {analysis.unfiltered ? (
+              <span className="inline-flex items-center border rounded-md font-mono text-xs px-1.5 py-0.5 bg-gray-600/15 text-gray-400 border-gray-600/30">
+                默认/未筛选
+              </span>
+            ) : (
+              <>
+                <ScoreBadge score={analysis.importance} label="IMP" size="sm" />
+                <ScoreBadge score={analysis.ai_relevance} label="AI" size="sm" />
+              </>
+            )}
           </div>
         )}
       </div>

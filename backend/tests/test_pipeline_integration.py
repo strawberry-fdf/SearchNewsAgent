@@ -260,3 +260,81 @@ class TestPipelineIntegration:
         # 验证 filter_prompt 被传递
         call_kwargs = mock_analyse.call_args
         assert "只关注 Agent" in str(call_kwargs)
+
+    @patch("backend.pipeline.send_feishu_notification", new_callable=AsyncMock)
+    @patch("backend.pipeline.analyse_article", new_callable=AsyncMock)
+    @patch("backend.pipeline.fetch_rss_feed", new_callable=AsyncMock)
+    async def test_respect_source_intervals_skips_recent(
+        self, mock_fetch, mock_analyse, mock_feishu, test_db, make_source,
+    ):
+        """respect_source_intervals=True 时，刚抓过的信源应被跳过。"""
+        from backend.pipeline import run_ingestion_pipeline
+
+        # 信源间隔 60 分钟，刚刚抓取过
+        recent = datetime.now(timezone.utc).isoformat()
+        await db.upsert_source(make_source(
+            name="RecentSrc", url="https://recent.com/feed",
+            fetch_interval_minutes=60,
+        ))
+        await db.update_source_last_fetched("https://recent.com/feed")
+
+        mock_fetch.return_value = []
+        logs: list[str] = []
+        stats = await run_ingestion_pipeline(
+            progress_cb=logs.append,
+            respect_source_intervals=True,
+        )
+
+        # fetch_rss_feed 不应被调用（信源被跳过）
+        mock_fetch.assert_not_called()
+        # 应有跳过提示
+        assert any("跳过" in l for l in logs)
+
+    @patch("backend.pipeline.send_feishu_notification", new_callable=AsyncMock)
+    @patch("backend.pipeline.analyse_article", new_callable=AsyncMock)
+    @patch("backend.pipeline.fetch_rss_feed", new_callable=AsyncMock)
+    async def test_respect_source_intervals_fetches_overdue(
+        self, mock_fetch, mock_analyse, mock_feishu, test_db, make_source,
+    ):
+        """respect_source_intervals=True 时，超过间隔的信源应正常抓取。"""
+        from backend.pipeline import run_ingestion_pipeline
+
+        # 信源间隔 1 分钟，最后抓取时间设为很久以前
+        await db.upsert_source(make_source(
+            name="OverdueSrc", url="https://overdue.com/feed",
+            fetch_interval_minutes=1,
+        ))
+        # 手动设一个很旧的 last_fetched_at
+        conn = await db.get_db()
+        await conn.execute(
+            "UPDATE sources SET last_fetched_at = ? WHERE url = ?",
+            ("2020-01-01T00:00:00+00:00", "https://overdue.com/feed"),
+        )
+        await conn.commit()
+
+        mock_fetch.return_value = []
+        stats = await run_ingestion_pipeline(respect_source_intervals=True)
+
+        # 应该被抓取
+        mock_fetch.assert_called_once()
+
+    @patch("backend.pipeline.send_feishu_notification", new_callable=AsyncMock)
+    @patch("backend.pipeline.analyse_article", new_callable=AsyncMock)
+    @patch("backend.pipeline.fetch_rss_feed", new_callable=AsyncMock)
+    async def test_manual_trigger_ignores_intervals(
+        self, mock_fetch, mock_analyse, mock_feishu, test_db, make_source,
+    ):
+        """手动触发（默认 respect_source_intervals=False）忽略间隔限制。"""
+        from backend.pipeline import run_ingestion_pipeline
+
+        await db.upsert_source(make_source(
+            name="ManualSrc", url="https://manual.com/feed",
+            fetch_interval_minutes=9999,
+        ))
+        await db.update_source_last_fetched("https://manual.com/feed")
+
+        mock_fetch.return_value = []
+        stats = await run_ingestion_pipeline()  # default=False
+
+        # 即使刚刚抓过，手动触发也应抓取
+        mock_fetch.assert_called_once()

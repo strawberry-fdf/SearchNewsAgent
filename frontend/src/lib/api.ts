@@ -20,6 +20,7 @@ export interface ArticleAnalysis {
   importance: number;
   model_selected: boolean;
   tags: string[];
+  unfiltered?: boolean;
 }
 
 export interface Article {
@@ -247,6 +248,7 @@ export async function addSource(source: {
   tags: string[];
   category?: string;
   fetch_since?: string | null;
+  fetch_interval_minutes?: number;
 }): Promise<{ status: string; id: string }> {
   return fetchJSON("/api/sources", {
     method: "POST",
@@ -468,6 +470,10 @@ export interface PipelineStatus {
 
 export async function triggerPipeline(): Promise<{ status: string }> {
   return fetchJSON("/api/admin/run-pipeline", { method: "POST" });
+}
+
+export async function stopPipeline(): Promise<{ status: string }> {
+  return fetchJSON("/api/admin/stop-pipeline", { method: "POST" });
 }
 
 export async function getPipelineStatus(): Promise<PipelineStatus> {

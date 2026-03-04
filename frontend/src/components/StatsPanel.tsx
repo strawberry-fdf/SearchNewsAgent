@@ -7,10 +7,10 @@
 import { useEffect, useRef, useState } from "react";
 import {
   BarChart3, Loader2, Zap, XCircle, Clock, Newspaper, Terminal,
-  History, ChevronDown, ChevronRight, Trash2,
+  History, ChevronDown, ChevronRight, Trash2, StopCircle,
 } from "lucide-react";
 import {
-  getStats, triggerPipeline, getPipelineStatus, getPipelineRuns, deletePipelineRun,
+  getStats, triggerPipeline, stopPipeline, getPipelineStatus, getPipelineRuns, deletePipelineRun,
   type Stats, type PipelineStatus, type PipelineRun,
 } from "@/lib/api";
 import clsx from "clsx";
@@ -122,6 +122,7 @@ export default function StatsPanel() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [pipelineStatus, setPipelineStatus] = useState<PipelineStatus | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -169,6 +170,7 @@ export default function StatsPanel() {
         if (!s.running) {
           setPipelineStatus(s);
           setRunning(false);
+          setStopping(false);
           stopPolling();
           await loadStats();
         }
@@ -187,6 +189,7 @@ export default function StatsPanel() {
 
   async function handleRunPipeline() {
     setRunning(true);
+    setStopping(false);
     setLogs([]);
     setPipelineStatus(null);
     try {
@@ -200,6 +203,16 @@ export default function StatsPanel() {
       console.error(err);
       setRunning(false);
       setLogs(["❌ 启动失败，请检查后端连接"]);
+    }
+  }
+
+  async function handleStopPipeline() {
+    setStopping(true);
+    try {
+      await stopPipeline();
+    } catch (err) {
+      console.error(err);
+      setStopping(false);
     }
   }
 
@@ -226,14 +239,26 @@ export default function StatsPanel() {
           <BarChart3 size={24} className="text-dark-accent" />
           <h1 className="text-2xl font-bold">数据面板</h1>
         </div>
-        <button
-          onClick={handleRunPipeline}
-          disabled={running}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-dark-accent text-black text-sm font-medium hover:bg-dark-accent/80 transition-colors disabled:opacity-50"
-        >
-          {running ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
-          {running ? "采集中..." : "手动触发采集"}
-        </button>
+        <div className="flex items-center gap-2">
+          {running && (
+            <button
+              onClick={handleStopPipeline}
+              disabled={stopping}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-medium hover:bg-red-500/20 transition-colors disabled:opacity-50"
+            >
+              {stopping ? <Loader2 size={14} className="animate-spin" /> : <StopCircle size={14} />}
+              {stopping ? "正在停止..." : "停止更新"}
+            </button>
+          )}
+          <button
+            onClick={handleRunPipeline}
+            disabled={running}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-dark-accent text-black text-sm font-medium hover:bg-dark-accent/80 transition-colors disabled:opacity-50"
+          >
+            {running ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
+            {running ? "采集中..." : "手动触发采集"}
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}

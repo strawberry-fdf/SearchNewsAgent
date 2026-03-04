@@ -1,3 +1,8 @@
+## [1.0.9] - 2026-03-04
+
+### ✨ 新功能
+- update Linux packaging format to deb and enhance startup reliability
+
 ## [1.0.8] - 2026-03-03
 
 - 版本更新
