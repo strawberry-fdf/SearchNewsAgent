@@ -2,11 +2,12 @@
 网页爬虫模块 (ingestion/web_scraper.py) 单元测试。
 
 覆盖场景:
-- HTML 链接提取
-- HTML → Markdown 转换（噪音标签移除）
+- HTML 链接提取（Scrapling Selector）
+- HTML → Markdown 转换（lxml 降噪 + markdownify）
 - 标题提取（h1 优先 / title 回退）
 - CSS 选择器链接筛选
-- scrape_web_page 完整流程
+- scrape_web_page 完整流程（并发 + FetcherSession）
+- 异常兜底与状态码处理
 """
 
 from __future__ import annotations
@@ -39,38 +40,40 @@ class TestExtractLinks:
 
     def test_dedup_links(self):
         """重复链接应去重。"""
-        html = '<a href="/art">A</a><a href="/art">B</a>'
+        html = '<html><body><a href="/art">A</a><a href="/art">B</a></body></html>'
         links = _extract_links(html, "https://example.com")
         assert len(links) == 1
 
     def test_skip_hash_and_javascript(self):
         """应跳过 # 锚点和 javascript: 链接。"""
-        html = '<a href="#">Top</a><a href="javascript:void(0)">Click</a><a href="/real">Real</a>'
+        html = '<html><body><a href="#">Top</a><a href="javascript:void(0)">Click</a><a href="/real">Real</a></body></html>'
         links = _extract_links(html, "https://example.com")
         assert len(links) == 1
         assert "https://example.com/real" in links
 
     def test_absolute_url_preserved(self):
         """绝对 URL 应保持不变。"""
-        html = '<a href="https://other.com/page">Link</a>'
+        html = '<html><body><a href="https://other.com/page">Link</a></body></html>'
         links = _extract_links(html, "https://example.com")
         assert links == ["https://other.com/page"]
 
     def test_relative_url_resolved(self):
         """相对 URL 应基于 base_url 解析。"""
-        html = '<a href="blog/post-1">Link</a>'
+        html = '<html><body><a href="blog/post-1">Link</a></body></html>'
         links = _extract_links(html, "https://example.com/")
         assert links == ["https://example.com/blog/post-1"]
 
     def test_with_selector(self):
         """CSS 选择器应限定链接提取范围。"""
         html = """
+        <html><body>
         <div class="nav"><a href="/nav1">Nav</a></div>
         <div class="articles"><a href="/art1">Art</a><a href="/art2">Art2</a></div>
+        </body></html>
         """
         links = _extract_links(html, "https://example.com", selector=".articles a")
         assert len(links) == 2
-        assert all("/art" in l for l in links)
+        assert all("/art" in link for link in links)
 
     def test_empty_html(self):
         """空 HTML 返回空列表。"""
@@ -155,34 +158,102 @@ class TestExtractTitle:
 class TestScrapeWebPage:
     """scrape_web_page() 完整流程测试。"""
 
-    @patch("backend.ingestion.web_scraper._fetch_html")
-    @patch("backend.ingestion.web_scraper.httpx.AsyncClient")
-    async def test_normal_scraping(self, mock_client_cls, mock_fetch):
-        """正常爬取：发现链接 → 抓取每篇 → 返回 article stubs。"""
-        # 模拟 index 页面
-        mock_fetch.return_value = '<html><body><a href="https://example.com/post1">Post1</a></body></html>'
+    @patch("backend.ingestion.web_scraper.FetcherSession")
+    @patch("backend.ingestion.web_scraper._fetch_page")
+    async def test_normal_scraping(self, mock_fetch_page, mock_session_cls):
+        """正常爬取：发现链接 → 并发抓取每篇 → 返回 article stubs。"""
+        from scrapling.parser import Selector
 
-        # 模拟文章页面
-        mock_article_resp = MagicMock()
-        mock_article_resp.raise_for_status = MagicMock()
-        mock_article_resp.text = "<html><head><title>Post 1</title></head><body><h1>Post Title</h1><p>Article body</p></body></html>"
+        # 模拟索引页（Selector 对象）
+        mock_fetch_page.return_value = Selector(
+            '<html><body><a href="https://example.com/post1">Post1</a></body></html>'
+        )
 
-        mock_client = AsyncMock()
-        mock_client.get.return_value = mock_article_resp
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client_cls.return_value = mock_client
+        # 模拟文章页面响应
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.body = (
+            b"<html><head><title>Post 1</title></head>"
+            b"<body><h1>Post Title</h1><p>Article body</p></body></html>"
+        )
+        mock_resp.encoding = "utf-8"
 
-        articles = await scrape_web_page("https://example.com/news", source_name="TestWeb")
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(return_value=mock_resp)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+        mock_session_cls.return_value = mock_session
+
+        articles = await scrape_web_page(
+            "https://example.com/news", source_name="TestWeb",
+        )
 
         assert len(articles) >= 1
         assert articles[0]["source_name"] == "TestWeb"
         assert articles[0]["status"] == "pending"
         assert len(articles[0]["url_hash"]) == 64
 
-    @patch("backend.ingestion.web_scraper._fetch_html")
-    async def test_fetch_error_returns_empty(self, mock_fetch):
-        """获取页面失败时返回空列表。"""
-        mock_fetch.side_effect = Exception("Connection timeout")
+    @patch("backend.ingestion.web_scraper._fetch_page")
+    async def test_fetch_error_returns_empty(self, mock_fetch_page):
+        """获取索引页失败时返回空列表。"""
+        mock_fetch_page.side_effect = Exception("Connection timeout")
         articles = await scrape_web_page("https://example.com")
         assert articles == []
+
+    @patch("backend.ingestion.web_scraper.FetcherSession")
+    @patch("backend.ingestion.web_scraper._fetch_page")
+    async def test_non_200_status_skipped(self, mock_fetch_page, mock_session_cls):
+        """非 200 状态码的文章应被跳过。"""
+        from scrapling.parser import Selector
+
+        mock_fetch_page.return_value = Selector(
+            '<html><body><a href="https://example.com/blocked">Link</a></body></html>'
+        )
+
+        mock_resp = MagicMock()
+        mock_resp.status = 403
+        mock_resp.body = b""
+        mock_resp.encoding = "utf-8"
+
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(return_value=mock_resp)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+        mock_session_cls.return_value = mock_session
+
+        articles = await scrape_web_page("https://example.com/news")
+        assert articles == []
+
+    @patch("backend.ingestion.web_scraper.FetcherSession")
+    @patch("backend.ingestion.web_scraper._fetch_page")
+    async def test_network_error_skips_article(self, mock_fetch_page, mock_session_cls):
+        """单篇文章网络错误不影响其他文章。"""
+        from scrapling.parser import Selector
+
+        mock_fetch_page.return_value = Selector(
+            '<html><body>'
+            '<a href="https://example.com/ok">OK</a>'
+            '<a href="https://example.com/fail">Fail</a>'
+            '</body></html>'
+        )
+
+        ok_resp = MagicMock()
+        ok_resp.status = 200
+        ok_resp.body = b"<html><body><h1>Good</h1><p>Content</p></body></html>"
+        ok_resp.encoding = "utf-8"
+
+        mock_session = AsyncMock()
+
+        async def side_effect(url, **kwargs):
+            if "fail" in url:
+                raise ConnectionError("timeout")
+            return ok_resp
+
+        mock_session.get = AsyncMock(side_effect=side_effect)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+        mock_session_cls.return_value = mock_session
+
+        articles = await scrape_web_page("https://example.com/news")
+        assert len(articles) == 1
+        assert articles[0]["raw_title"] == "Good"

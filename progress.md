@@ -1,4 +1,5 @@
 ## [Completed]
+- **爬虫模块 Scrapling 重构**: `web_scraper.py` 底层库从 httpx+BS4+Playwright 全面替换为 Scrapling——静态页面使用 `AsyncFetcher`+`FetcherSession`（TLS 指纹伪装+连接池复用+内置重试），动态/反爬页面使用 `AsyncStealthySession`（Playwright+反检测绕过 Cloudflare 等）；链接/标题提取改用 Scrapling `Selector`（比 BS4 快 ~784x）；HTML 降噪改用 `lxml` 直接操作 DOM；文章抓取从串行改为 `asyncio.Semaphore(5)` 并发限流；新增 HTTP 状态码分级处理（429 限流/403 封禁/5xx 兜底）；`requirements.txt` 添加 `scrapling[fetchers]`、移除 `beautifulsoup4`+Playwright 注释；测试 20 项全通过（含新增 non-200/网络错误/并发场景），全量 311 测试无回归
 - **RSS 解析完备性修复 + JSON Feed 支持**: 移除 `_MAX_ENTRIES_PER_FEED=30` 硬性截断，所有 feed entries 全量解析；修复 `fetch_since` 过滤逻辑——无日期条目不再被错误跳过（无法判定为旧则放行）；新增 JSON Feed 1.0/1.1 格式自动检测与解析；`_parse_date` 增加 ISO 字符串回退；后端 309 测试 + 前端 225 测试全通过
 - **信源自定义抓取频率**: 基于已有 `fetch_interval_minutes` 字段实现完整的信源级别更新间隔控制——pipeline 新增 `respect_source_intervals` 参数，定时调度时检查每个信源的 `last_fetched_at + interval` 跳过未到期信源，手动触发仍抓取全部；APScheduler tick 间隔缩短至 5 分钟确保短间隔信源被及时轮询；前端 SourceManager 新增更新频率选择器（5分钟~24小时）支持添加和内联编辑
 - **模型配置拦截逻辑**: 开启 AI 分析前校验是否存在已激活且完整（api_key/model/base_url）的 LLM 配置，缺失时前端弹出红色提示并阻止开启，后端 update_settings 同步 400 校验；前端 225 测试 + 后端 286 测试全通过
@@ -90,11 +91,12 @@
 - 无
 
 ## [Next Steps]
-1. 端到端验证 RSS 解析修复与 JSON Feed 在实际信源上的表现
-2. 端到端验证信源自定义更新频率在定时调度下的行为
-3. 触发一次新 tag 发布，验证 Release 同步包含 `latest*.yml` 与 `*.blockmap`
+1. 端到端验证 Scrapling 爬虫在实际 web 信源上的表现（静态 + Stealth 模式）
+2. 端到端验证 RSS 解析修复与 JSON Feed 在实际信源上的表现
+3. 端到端验证信源自定义更新频率在定时调度下的行为
 
 ## [Key Decisions / Context]
+- **爬虫底层库**: 从 httpx+BS4+Playwright 替换为 Scrapling——静态页面用 AsyncFetcher/FetcherSession（curl_cffi + TLS 伪装），动态页面用 AsyncStealthySession（Playwright + 反检测）；HTML 解析用 Scrapling Selector（lxml 内核，Scrapy 风格 CSS 伪元素），降噪用 lxml 直接 DOM 操作；Stealth 模式需额外执行 `scrapling install` 下载浏览器
 - LLM 厂商注册表: 13 个厂商（openai/anthropic/deepseek/zhipu/minimax/xai/mistral/groq/openrouter/dashscope/baichuan/gemini/ollama），支持厂商切换自动填充 Base URL + 静态模型列表 + API 模型发现
 - 模型发现策略: discover_models 返回全部动态模型（不再限制 2 个），仅在无 API Key 时回退 static_models
 - 前端 LLM 配置交互: 选厂商 → 自动填充 Base URL → 输入 API Key → 发现/选择模型 → 保存；像 opencode 一样简单

@@ -16,7 +16,8 @@ apscheduler>=3.10.0
 feedparser>=6.0.0
 httpx>=0.27.0
 markdownify>=0.13.0
-beautifulsoup4>=4.12.0
+scrapling[fetchers]>=0.4.0
+# NOTE: 使用 StealthyFetcher/DynamicFetcher 还需执行: scrapling install
 
 # ---- LLM Providers ----
 openai>=1.50.0
@@ -27,6 +28,3 @@ pydantic>=2.9.0
 
 # ---- Environment ----
 python-dotenv>=1.0.0
-
-# ---- Optional: JS-rendered scraping ----
-# playwright>=1.48.0  (install separately: pip install playwright && playwright install)
