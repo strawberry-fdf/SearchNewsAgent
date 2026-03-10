@@ -56,12 +56,14 @@ export default function Home() {
 
     api.getPostUpdateReleaseNotes()
       .then((result) => {
-        if (result.releaseNotes) {
+        if (result?.releaseNotes) {
           setPostUpdateIsPreview(false);
           setPostUpdateReleaseNotes(result.releaseNotes);
         }
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.warn("[PostUpdateReleaseNotes] IPC 获取失败:", err);
+      });
 
     return () => {
       window.removeEventListener(POST_UPDATE_RELEASE_NOTES_PREVIEW_EVENT, handlePreview);

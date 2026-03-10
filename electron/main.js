@@ -45,6 +45,8 @@ let isManualUpdaterCheck = false;
 let availableUpdateContext = null;
 /** 缓存最近一次发送给前端的更新检查结果，前端 mount 后可通过 IPC 主动查询 */
 let lastUpdateResult = null;
+/** 启动时检测到的版本升级信息（previousVersion → currentVersion） */
+let detectedUpgrade = null;
 
 // ─── 日志辅助 ────────────────────────────────────────────────
 function log(msg) {
@@ -497,6 +499,9 @@ function buildAppMenu() {
 // ─── 应用生命周期 ────────────────────────────────────────────
 
 app.whenReady().then(async () => {
+  // 启动时检测版本变化，用于 post-update release notes 回退机制
+  detectVersionUpgrade();
+
   buildAppMenu();
   try {
     createTray();
@@ -602,9 +607,43 @@ const GITHUB_REPO = "SearchNewsAgent";
 const GITHUB_API_BASE_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}`;
 const GITHUB_API_URL = `${GITHUB_API_BASE_URL}/releases/latest`;
 const POST_UPDATE_RELEASE_NOTES_FILE = "post-update-release-notes.json";
+const LAST_APP_VERSION_FILE = "last-app-version.txt";
 
 function getPostUpdateReleaseNotesPath() {
   return path.join(getUserDataDir(), POST_UPDATE_RELEASE_NOTES_FILE);
+}
+
+function getLastAppVersionPath() {
+  return path.join(getUserDataDir(), LAST_APP_VERSION_FILE);
+}
+
+/**
+ * 启动时检测版本变化：比较上次记录的版本与当前版本。
+ * 若发生变化说明刚完成一次更新，缓存到 detectedUpgrade。
+ * 无论是否变化，写入当前版本供下次启动比较。
+ */
+function detectVersionUpgrade() {
+  const filePath = getLastAppVersionPath();
+  const currentVersion = app.getVersion();
+  let previousVersion = null;
+  try {
+    if (fs.existsSync(filePath)) {
+      previousVersion = fs.readFileSync(filePath, "utf-8").trim();
+    }
+  } catch (err) {
+    log(`读取 last-app-version 失败: ${err.message}`);
+  }
+  if (previousVersion && previousVersion !== currentVersion) {
+    detectedUpgrade = { previousVersion, currentVersion };
+    log(`检测到版本升级: v${previousVersion} → v${currentVersion}`);
+  } else {
+    detectedUpgrade = null;
+  }
+  try {
+    fs.writeFileSync(filePath, currentVersion, "utf-8");
+  } catch (err) {
+    log(`写入 last-app-version 失败: ${err.message}`);
+  }
 }
 
 function safeReadJson(filePath) {
@@ -1278,15 +1317,37 @@ ipcMain.handle("start-update-installation", async () => {
 });
 
 ipcMain.handle("get-post-update-release-notes", async () => {
+  // 1. 优先从持久化文件读取（update-downloaded 时写入）
   const notes = readPostUpdateReleaseNotes();
-  log(`读取更新后说明: ${notes ? `v${notes.version}, ${notes.notes?.length || 0} 条` : "无"}`);
-  return {
-    releaseNotes: notes,
-  };
+  if (notes) {
+    log(`读取更新后说明（文件）: v${notes.version}, ${notes.notes?.length || 0} 条`);
+    return { releaseNotes: notes };
+  }
+
+  // 2. 文件不存在但检测到版本升级 → 从 GitHub API 回退获取
+  if (detectedUpgrade) {
+    log(`更新后说明文件缺失，尝试从 GitHub API 回退: v${detectedUpgrade.previousVersion} → v${detectedUpgrade.currentVersion}`);
+    try {
+      const releaseContext = await resolveReleaseContext(detectedUpgrade.currentVersion, {});
+      releaseContext.previousVersion = detectedUpgrade.previousVersion;
+      // 持久化以防后续再次查询
+      persistPostUpdateReleaseNotes(releaseContext);
+      log(`从 GitHub API 回退获取成功: v${releaseContext.version}, ${releaseContext.notes?.length || 0} 条`);
+      // 回退成功后清除 detectedUpgrade，避免重复拉取
+      detectedUpgrade = null;
+      return { releaseNotes: releaseContext };
+    } catch (err) {
+      log(`从 GitHub API 回退获取更新说明失败: ${err.message}`);
+    }
+  }
+
+  log("读取更新后说明: 无");
+  return { releaseNotes: null };
 });
 
 ipcMain.handle("dismiss-post-update-release-notes", async () => {
   deleteFileIfExists(getPostUpdateReleaseNotesPath());
+  detectedUpgrade = null;
   return { status: "ok" };
 });
 

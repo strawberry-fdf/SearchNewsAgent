@@ -1,15 +1,14 @@
 {
-  "version": "1.0.13",
-  "tag": "v1.0.13",
-  "previousTag": "v1.0.12",
-  "title": "AgentNews v1.0.13",
+  "version": "1.0.14",
+  "tag": "v1.0.14",
+  "previousTag": "v1.0.13",
+  "title": "AgentNews v1.0.14",
   "notes": [
-    "修复更新检测延迟：等待页面加载完成后再启动自动更新检查",
-    "修复更新后 Release Notes 不显示：新增 IPC 主动查询接口弥补启动时序差",
-    "修复 IPC 监听器内存泄漏：监听器返回清理函数并在 unmount 时正确移除",
-    "新增更新状态缓存机制：前端 mount 后可主动查询待处理的更新通知"
+    "修复更新后 Release Notes 不显示：新增版本变化检测 + GitHub API 回退获取",
+    "三级降级机制：持久化文件 → GitHub Release API → commit 对比",
+    "防止 release notes 因文件丢失、版本不匹配等原因静默失败"
   ],
   "notesSource": "cli",
-  "body": "## 更新说明\n\n\n- 修复更新检测延迟：等待页面加载完成后再启动自动更新检查\n- 修复更新后 Release Notes 不显示：新增 IPC 主动查询接口弥补启动时序差\n- 修复 IPC 监听器内存泄漏：监听器返回清理函数并在 unmount 时正确移除\n- 新增更新状态缓存机制：前端 mount 后可主动查询待处理的更新通知\n",
-  "generatedAt": "2026-03-10T15:58:33.039Z"
+  "body": "## 更新说明\n\n\n- 修复更新后 Release Notes 不显示：新增版本变化检测 + GitHub API 回退获取\n- 三级降级机制：持久化文件 → GitHub Release API → commit 对比\n- 防止 release notes 因文件丢失、版本不匹配等原因静默失败\n",
+  "generatedAt": "2026-03-10T16:26:00.182Z"
 }

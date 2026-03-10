@@ -1,4 +1,5 @@
 ## [Completed]
+- **更新后 Release Notes 回退机制 (v1.0.14)**: 新增版本变化检测 (`last-app-version.txt`) + GitHub API 回退获取更新说明；`get-post-update-release-notes` IPC 处理器增加三级降级——① 读取持久化 JSON 文件 → ② 检测到版本升级时从 GitHub API 实时获取 → ③ 无数据返回 null；`dismiss` 时同步清除 `detectedUpgrade` 防止重复弹出；前端 catch 增加 console.warn 日志辅助排查；前端 229 测试 + 后端 313 测试全通过
 - **GitHub Actions 发布工作流恢复**: 修复 `.github/workflows/release.yml` 中 `run: |` 内嵌 Python heredoc 的 YAML 缩进错误，解决 GitHub Actions 在解析阶段直接 0 秒失败、无法显示 job graph 的问题；新增 `docs/tooling/02-release-workflow-yaml-fix.md`
 - **网页爬虫 lxml 依赖修复**: `web_scraper.py` 顶层导入改为可选依赖，缺少 `lxml` 时自动降级为轻量 HTML 降噪 + markdownify，避免后端启动直接因 ModuleNotFoundError 崩溃；`backend/requirements.txt` 显式补充 `lxml`，`scripts/build-backend.mjs` 同步加入 `lxml` / `scrapling` 打包收集；新增 `docs/ingestion/01-web-scraper-lxml-fallback.md`；当前环境已完成依赖安装、定向测试、全量后端测试与后端入口导入验证
 - **Release 说明贯通自动更新链路**: `scripts/release.mjs` 新增 release 更新要点录入与 `.release-metadata.json` 生成；GitHub Actions 发布 Release 时优先读取该元数据写入正文，缺失则自动回退为版本区间 commit message 列表；Electron 自动更新新增下载进度反馈、安装前持久化发布说明、应用重启后在首页 body 内弹出可关闭的更新说明窗口；设置页新增开发环境「预览更新提示 / 预览更新说明」按钮，前端测试覆盖预览与进度场景
@@ -68,6 +69,7 @@
 - 托盘图标修复: 生成 tray-icon.png/tray-iconTemplate.png/@2x 专用托盘图标；修复生产模式 fallback 路径错误；macOS 使用 Template 图标适配亮暗菜单栏；BrowserWindow 添加 icon 属性修复 Windows/Linux 任务栏图标
 - Windows 更新 browserforge 数据文件缺失修复 (v1.0.11): PyInstaller 新增 `--collect-data=browserforge` 和 `--collect-data=apify_fingerprint_datapoints`，补充 hidden imports for browserforge/apify_fingerprint_datapoints 模块层级；修复更新后启动报 `FileNotFoundError: input-network-definition.zip`
 - 更新 UX 重设计: 点击更新按钮后隐藏主窗口→弹出独立更新进度小窗口（frameless, always-on-top, 渐变进度条）→下载完成自动安装重启→重启后展示版本更新说明；新增 `electron/update.html`，修改 `electron/main.js` 更新窗口管理逻辑
+- 更新检测与 Release Notes 修复 (v1.0.13): ①`setupAutoUpdater()` 改为等待 `did-finish-load` 后再启动，避免首次检查结果在前端 IPC 注册前被丢弃 ②新增 `lastUpdateResult` 缓存 + `get-pending-update-status` IPC，前端 mount 后主动查询待处理的更新通知 ③preload IPC 监听器改为返回清理函数，`UpdateToast` useEffect 清理时移除旧监听器（修复内存泄漏）④`persistPostUpdateReleaseNotes` 增加写入验证日志，`readPostUpdateReleaseNotes` 增加详细匹配/不匹配日志；前端 229 测试 + 后端 313 测试全通过
 
 - 后端测试全覆盖: 283 个测试用例全部通过，覆盖 12 个模块（dedup/models/rules_engine/extractor/feishu/rss_fetcher/web_scraper/db/pipeline/api/cross_scenarios），含单元测试+集成测试+全场景交叉复杂测试
 - 前端测试全覆盖: 223 个测试用例全部通过（13 个测试文件），覆盖 api/ScoreBadge/ThemeProvider/Sidebar/ArticleCard/ArticleFeed/SourcePanel/SourceManager/StatsPanel/Settings/UpdateToast/Home(page) + 集成测试；测试框架 Vitest 4.0.18 + @testing-library/react + jest-dom + user-event + jsdom
@@ -99,7 +101,7 @@
 1. 端到端验证 Scrapling 爬虫在实际 web 信源上的表现（静态 + Stealth 模式）
 2. 端到端验证 RSS 解析修复与 JSON Feed 在实际信源上的表现
 3. 恢复 `UPDATE_CHECK_INTERVAL` 为 4 小时生产值（当前为 1 分钟调试值）
-4. 端到端验证自动更新链路在真实 GitHub Release 下的行为（下载、安装、重启后说明展示）
+4. 端到端验证 v1.0.13 自动更新链路（检测延迟修复 + Release Notes 展示）
 
 ## [Key Decisions / Context]
 - **爬虫底层库**: 从 httpx+BS4+Playwright 替换为 Scrapling——静态页面用 AsyncFetcher/FetcherSession（curl_cffi + TLS 伪装），动态页面用 AsyncStealthySession（Playwright + 反检测）；HTML 解析用 Scrapling Selector（lxml 内核，Scrapy 风格 CSS 伪元素），降噪用 lxml 直接 DOM 操作；Stealth 模式需额外执行 `scrapling install` 下载浏览器
