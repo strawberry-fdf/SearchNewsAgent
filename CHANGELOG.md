@@ -1,3 +1,19 @@
+## [1.0.10] - 2026-03-10
+
+### 发布说明
+- 发版命令支持录入更新要点，并自动同步到 GitHub Release
+- 桌面端更新提示新增下载进度反馈（百分比+MB进度条）
+- 更新完成后自动重启并展示版本更新说明面板
+- 无 Release 时自动回退为版本间 commit 摘要
+- 设置页新增开发环境预览更新UI按钮
+
+### ✨ 新功能
+- 新增更新自动更新进度和版本信息展示
+- refactor web scraper to use Scrapling for improved performance and reliability
+
+### 🐛 修复
+- **ci**: repair release workflow yaml indentation
+
 ## [1.0.9] - 2026-03-04
 
 ### ✨ 新功能
