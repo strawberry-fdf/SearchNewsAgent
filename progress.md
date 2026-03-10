@@ -1,4 +1,5 @@
 ## [Completed]
+- **GitHub Actions 发布工作流恢复**: 修复 `.github/workflows/release.yml` 中 `run: |` 内嵌 Python heredoc 的 YAML 缩进错误，解决 GitHub Actions 在解析阶段直接 0 秒失败、无法显示 job graph 的问题；新增 `docs/tooling/02-release-workflow-yaml-fix.md`
 - **网页爬虫 lxml 依赖修复**: `web_scraper.py` 顶层导入改为可选依赖，缺少 `lxml` 时自动降级为轻量 HTML 降噪 + markdownify，避免后端启动直接因 ModuleNotFoundError 崩溃；`backend/requirements.txt` 显式补充 `lxml`，`scripts/build-backend.mjs` 同步加入 `lxml` / `scrapling` 打包收集；新增 `docs/ingestion/01-web-scraper-lxml-fallback.md`；当前环境已完成依赖安装、定向测试、全量后端测试与后端入口导入验证
 - **Release 说明贯通自动更新链路**: `scripts/release.mjs` 新增 release 更新要点录入与 `.release-metadata.json` 生成；GitHub Actions 发布 Release 时优先读取该元数据写入正文，缺失则自动回退为版本区间 commit message 列表；Electron 自动更新新增下载进度反馈、安装前持久化发布说明、应用重启后在首页 body 内弹出可关闭的更新说明窗口；设置页新增开发环境「预览更新提示 / 预览更新说明」按钮，前端测试覆盖预览与进度场景
 - **爬虫模块 Scrapling 重构**: `web_scraper.py` 底层库从 httpx+BS4+Playwright 全面替换为 Scrapling——静态页面使用 `AsyncFetcher`+`FetcherSession`（TLS 指纹伪装+连接池复用+内置重试），动态/反爬页面使用 `AsyncStealthySession`（Playwright+反检测绕过 Cloudflare 等）；链接/标题提取改用 Scrapling `Selector`（比 BS4 快 ~784x）；HTML 降噪改用 `lxml` 直接操作 DOM；文章抓取从串行改为 `asyncio.Semaphore(5)` 并发限流；新增 HTTP 状态码分级处理（429 限流/403 封禁/5xx 兜底）；`requirements.txt` 添加 `scrapling[fetchers]`、移除 `beautifulsoup4`+Playwright 注释；测试 20 项全通过（含新增 non-200/网络错误/并发场景），全量 311 测试无回归
@@ -133,3 +134,4 @@
 - **构建策略修正**: 后端 PyInstaller 不支持跨平台产物，`build.mjs` 与 `build-backend.mjs` 已增加主机/目标平台一致性校验；跨平台完整构建需在对应系统或 CI 多平台 Runner 执行
 - **发布策略升级**: 发布来源改为 GitHub Actions 自动流水线（tag 驱动），避免“仅有 tag 无 Release”导致客户端无法检测更新
 - **更新兜底策略**: Win/Linux 首选 `electron-updater`；若元数据缺失（`latest*.yml`/`*.blockmap`）导致失败，自动回退 GitHub Releases API 保证可见更新提示
+- **Workflow 排障特征**: 若 GitHub Actions 页面出现 0 秒失败且无法展示 workflow graph，优先检查 `.github/workflows/*.yml` 是否在 YAML 解析阶段失效，尤其是 `run: |` 内多行脚本、heredoc 与嵌入代码的缩进
