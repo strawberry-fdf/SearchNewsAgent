@@ -1,16 +1,14 @@
 {
-  "version": "1.0.10",
-  "tag": "v1.0.10",
-  "previousTag": "v1.0.9",
-  "title": "AgentNews v1.0.10",
+  "version": "1.0.11",
+  "tag": "v1.0.11",
+  "previousTag": "v1.0.10",
+  "title": "AgentNews v1.0.11",
   "notes": [
-    "发版命令支持录入更新要点，并自动同步到 GitHub Release",
-    "桌面端更新提示新增下载进度反馈（百分比+MB进度条）",
-    "更新完成后自动重启并展示版本更新说明面板",
-    "无 Release 时自动回退为版本间 commit 摘要",
-    "设置页新增开发环境预览更新UI按钮"
+    "修复 Windows 更新后 browserforge 数据文件缺失导致启动报错",
+    "更新时关闭主窗口，弹出独立更新进度小窗口",
+    "更新完成自动安装并重启，展示版本更新说明"
   ],
   "notesSource": "cli",
-  "body": "## 更新说明\n\n\n- 发版命令支持录入更新要点，并自动同步到 GitHub Release\n- 桌面端更新提示新增下载进度反馈（百分比+MB进度条）\n- 更新完成后自动重启并展示版本更新说明面板\n- 无 Release 时自动回退为版本间 commit 摘要\n- 设置页新增开发环境预览更新UI按钮\n\n## 变更摘要\n\n\n### ✨ 新功能\n- 新增更新自动更新进度和版本信息展示\n- refactor web scraper to use Scrapling for improved performance and reliability\n\n### 🐛 修复\n- **ci**: repair release workflow yaml indentation\n",
-  "generatedAt": "2026-03-10T14:30:43.246Z"
+  "body": "## 更新说明\n\n\n- 修复 Windows 更新后 browserforge 数据文件缺失导致启动报错\n- 更新时关闭主窗口，弹出独立更新进度小窗口\n- 更新完成自动安装并重启，展示版本更新说明\n\n## 变更摘要\n\n\n### 🐛 修复\n- 修复 browserforge 数据文件打包缺失 + 更新时切换为独立进度窗口\n",
+  "generatedAt": "2026-03-10T14:53:29.930Z"
 }
