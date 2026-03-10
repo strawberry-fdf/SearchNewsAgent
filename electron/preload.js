@@ -39,9 +39,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
   /** 关闭更新后说明弹窗并清除待展示状态 */
   dismissPostUpdateReleaseNotes: () => ipcRenderer.invoke("dismiss-post-update-release-notes"),
 
-  /** 监听更新检查结果（前端 Toast 展示） */
+  /** 前端 mount 后主动查询是否有待处理的更新通知（弥补启动时序差） */
+  getPendingUpdateStatus: () => ipcRenderer.invoke("get-pending-update-status"),
+
+  /** 监听更新检查结果（前端 Toast 展示），返回清理函数 */
   onUpdateCheckResult: (callback) => {
-    ipcRenderer.on("update-check-result", (_event, data) => callback(data));
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on("update-check-result", handler);
+    return () => ipcRenderer.removeListener("update-check-result", handler);
   },
 
   /** 打开外部链接（由主进程安全执行） */
@@ -54,13 +59,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
   /** 设置开机自启动 */
   setAutoLaunch: (enabled) => ipcRenderer.invoke("set-auto-launch", enabled),
 
-  /** 监听更新下载进度 */
+  /** 监听更新下载进度，返回清理函数 */
   onUpdateProgress: (callback) => {
-    ipcRenderer.on("update-progress", (_event, data) => callback(data));
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on("update-progress", handler);
+    return () => ipcRenderer.removeListener("update-progress", handler);
   },
 
-  /** 监听更新开始下载 */
+  /** 监听更新开始下载，返回清理函数 */
   onUpdateDownloading: (callback) => {
-    ipcRenderer.on("update-downloading", (_event, data) => callback(data));
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on("update-downloading", handler);
+    return () => ipcRenderer.removeListener("update-downloading", handler);
   },
 });

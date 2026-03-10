@@ -43,6 +43,8 @@ let isQuitting = false;
 let isUpdateDownloading = false;
 let isManualUpdaterCheck = false;
 let availableUpdateContext = null;
+/** 缓存最近一次发送给前端的更新检查结果，前端 mount 后可通过 IPC 主动查询 */
+let lastUpdateResult = null;
 
 // ─── 日志辅助 ────────────────────────────────────────────────
 function log(msg) {
@@ -503,13 +505,18 @@ app.whenReady().then(async () => {
   }
   const win = createMainWindow();
 
+  // 等待页面加载完成后再启动自动更新，确保前端 IPC 监听器已注册
+  win.webContents.once("did-finish-load", () => {
+    log("页面加载完成，启动自动更新检查");
+    setupAutoUpdater();
+  });
+
   if (isDev) {
     // ── 开发模式 ──────────────────────────────────────
     // 需要手动启动后端 (python -m backend.main) 和前端 (cd frontend && npm run dev)
     log("开发模式: 加载 http://localhost:3000");
     win.loadURL("http://localhost:3000");
     win.webContents.openDevTools({ mode: "detach" });
-    setupAutoUpdater();
   } else {
     // ── 生产模式 ──────────────────────────────────────
     // 无感启动：窗口保持隐藏，后台静默启动后端，就绪后直接显示主界面
@@ -519,8 +526,6 @@ app.whenReady().then(async () => {
       await waitForBackend();
       log("后端已就绪，加载主界面");
       win.loadURL(BACKEND_URL);
-      // 后端就绪后启动自动更新检查
-      setupAutoUpdater();
     } catch (err) {
       log(`后端启动失败: ${err.message}`);
       dialog.showErrorBox(
@@ -787,21 +792,39 @@ async function resolveReleaseContext(targetVersion, options = {}) {
 }
 
 function persistPostUpdateReleaseNotes(releaseContext) {
-  if (!releaseContext?.version) return;
-  safeWriteJson(getPostUpdateReleaseNotesPath(), {
+  if (!releaseContext?.version) {
+    log("跳过持久化更新说明: releaseContext.version 为空");
+    return;
+  }
+  const filePath = getPostUpdateReleaseNotesPath();
+  const payload = {
     ...releaseContext,
     savedAt: new Date().toISOString(),
-  });
+  };
+  safeWriteJson(filePath, payload);
+  // 验证写入成功
+  const verify = safeReadJson(filePath);
+  if (verify?.version === releaseContext.version) {
+    log(`更新说明已持久化: v${releaseContext.version}, ${releaseContext.notes?.length || 0} 条笔记, 文件: ${filePath}`);
+  } else {
+    log(`⚠️ 更新说明持久化验证失败! 写入版本=${releaseContext.version}, 读取到=${verify?.version}`);
+  }
 }
 
 function readPostUpdateReleaseNotes() {
   const filePath = getPostUpdateReleaseNotesPath();
   const payload = safeReadJson(filePath);
-  if (!payload) return null;
-  if (payload.version !== app.getVersion()) {
+  if (!payload) {
+    log(`更新后说明文件不存在或解析失败: ${filePath}`);
+    return null;
+  }
+  const currentVer = app.getVersion();
+  if (payload.version !== currentVer) {
+    log(`更新后说明版本不匹配: 文件(${payload.version}) != 当前(${currentVer})，删除文件`);
     deleteFileIfExists(filePath);
     return null;
   }
+  log(`读取更新后说明成功: v${payload.version}, ${payload.notes?.length || 0} 条笔记`);
   return payload;
 }
 
@@ -838,12 +861,17 @@ function fallbackToGitHubRelease(err, manual) {
 
 /** 向渲染进程发送更新检查结果 */
 function sendUpdateResult(payload, manual = false) {
+  const result = {
+    ...payload,
+    currentVersion: app.getVersion(),
+    manual,
+  };
+  // 缓存 update-available 类型的结果，供前端 mount 后主动查询
+  if (payload.type === "update-available") {
+    lastUpdateResult = result;
+  }
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send("update-check-result", {
-      ...payload,
-      currentVersion: app.getVersion(),
-      manual,
-    });
+    mainWindow.webContents.send("update-check-result", result);
   }
 }
 
@@ -1250,14 +1278,21 @@ ipcMain.handle("start-update-installation", async () => {
 });
 
 ipcMain.handle("get-post-update-release-notes", async () => {
+  const notes = readPostUpdateReleaseNotes();
+  log(`读取更新后说明: ${notes ? `v${notes.version}, ${notes.notes?.length || 0} 条` : "无"}`);
   return {
-    releaseNotes: readPostUpdateReleaseNotes(),
+    releaseNotes: notes,
   };
 });
 
 ipcMain.handle("dismiss-post-update-release-notes", async () => {
   deleteFileIfExists(getPostUpdateReleaseNotesPath());
   return { status: "ok" };
+});
+
+// ─── IPC: 前端主动查询待处理的更新状态（弥补启动时 IPC 时序差） ──
+ipcMain.handle("get-pending-update-status", async () => {
+  return { result: lastUpdateResult || null };
 });
 
 // ─── IPC: 渲染进程请求打开外部链接 ─────────────────────────

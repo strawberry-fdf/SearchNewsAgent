@@ -74,9 +74,10 @@ declare global {
       setAutoLaunch: (enabled: boolean) => Promise<{ enabled: boolean }>;
       getPostUpdateReleaseNotes?: () => Promise<{ releaseNotes: ReleaseNotesInfo | null }>;
       dismissPostUpdateReleaseNotes?: () => Promise<{ status: string }>;
-      onUpdateCheckResult: (cb: (data: UpdateResult) => void) => void;
-      onUpdateProgress: (cb: (data: UpdateProgressPayload) => void) => void;
-      onUpdateDownloading: (cb: (data: { version: string }) => void) => void;
+      getPendingUpdateStatus?: () => Promise<{ result: UpdateResult | null }>;
+      onUpdateCheckResult: (cb: (data: UpdateResult) => void) => (() => void) | void;
+      onUpdateProgress: (cb: (data: UpdateProgressPayload) => void) => (() => void) | void;
+      onUpdateDownloading: (cb: (data: { version: string }) => void) => (() => void) | void;
     };
   }
 }

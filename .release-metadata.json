@@ -1,13 +1,15 @@
 {
-  "version": "1.0.12",
-  "tag": "v1.0.12",
-  "previousTag": "v1.0.11",
-  "title": "AgentNews v1.0.12",
+  "version": "1.0.13",
+  "tag": "v1.0.13",
+  "previousTag": "v1.0.12",
+  "title": "AgentNews v1.0.13",
   "notes": [
-    "docs: update progress md",
-    "feat: test release notes"
+    "修复更新检测延迟：等待页面加载完成后再启动自动更新检查",
+    "修复更新后 Release Notes 不显示：新增 IPC 主动查询接口弥补启动时序差",
+    "修复 IPC 监听器内存泄漏：监听器返回清理函数并在 unmount 时正确移除",
+    "新增更新状态缓存机制：前端 mount 后可主动查询待处理的更新通知"
   ],
-  "notesSource": "manual",
-  "body": "## 更新说明\n\n\n- docs: update progress md\n- feat: test release notes\n",
-  "generatedAt": "2026-03-10T15:27:48.110Z"
+  "notesSource": "cli",
+  "body": "## 更新说明\n\n\n- 修复更新检测延迟：等待页面加载完成后再启动自动更新检查\n- 修复更新后 Release Notes 不显示：新增 IPC 主动查询接口弥补启动时序差\n- 修复 IPC 监听器内存泄漏：监听器返回清理函数并在 unmount 时正确移除\n- 新增更新状态缓存机制：前端 mount 后可主动查询待处理的更新通知\n",
+  "generatedAt": "2026-03-10T15:58:33.039Z"
 }

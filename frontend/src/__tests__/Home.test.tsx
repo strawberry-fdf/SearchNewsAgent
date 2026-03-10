@@ -288,9 +288,10 @@ describe("Home — 更新后说明面板", () => {
           releaseNotes: createPreviewReleaseNotes(),
         })),
         dismissPostUpdateReleaseNotes: vi.fn(async () => ({ status: "ok" })),
-        onUpdateCheckResult: vi.fn(),
-        onUpdateProgress: vi.fn(),
-        onUpdateDownloading: vi.fn(),
+        onUpdateCheckResult: vi.fn(() => () => {}),
+        onUpdateProgress: vi.fn(() => () => {}),
+        onUpdateDownloading: vi.fn(() => () => {}),
+        getPendingUpdateStatus: vi.fn(async () => ({ result: null })),
       },
     });
 

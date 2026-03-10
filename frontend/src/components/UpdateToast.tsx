@@ -20,6 +20,7 @@ export default function UpdateToast() {
   const [updating, setUpdating] = useState(false);
   const [progress, setProgress] = useState<UpdateProgressPayload | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toastRef = useRef<UpdateResult | null>(null);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -47,6 +48,7 @@ export default function UpdateToast() {
   const showToast = useCallback(
     (result: UpdateResult) => {
       setToast(result);
+      toastRef.current = result;
       if (!["update-available", "downloading", "installing"].includes(result.type)) {
         setUpdating(false);
       }
@@ -59,12 +61,16 @@ export default function UpdateToast() {
     [autoHide]
   );
 
+  // 注册 IPC 监听器（仅注册一次，通过 ref 获取最新回调）
+  const showToastRef = useRef(showToast);
+  showToastRef.current = showToast;
+
   useEffect(() => {
     const api = typeof window !== "undefined" ? window.electronAPI : null;
     const handlePreview = (event: Event) => {
       const detail = (event as CustomEvent<UpdateResult>).detail;
       if (detail) {
-        showToast(detail);
+        showToastRef.current(detail);
       }
     };
 
@@ -76,25 +82,38 @@ export default function UpdateToast() {
       };
     }
 
-    api.onUpdateCheckResult((data) => {
-      showToast(data);
+    // 注册 IPC 监听器并保存清理函数
+    const cleanupCheckResult = api.onUpdateCheckResult((data) => {
+      showToastRef.current(data);
     });
 
-    api.onUpdateProgress((data) => {
+    const cleanupProgress = api.onUpdateProgress((data) => {
       setUpdating(true);
       setProgress(data);
-      showToast({
+      showToastRef.current({
         type: "downloading",
         version: data.version,
         updateMode: "in-app",
-        releaseNotes: toast?.releaseNotes ?? null,
+        releaseNotes: toastRef.current?.releaseNotes ?? null,
       });
     });
 
+    // 前端 mount 后主动查询是否有待处理的更新通知（弥补启动时 IPC 时序差）
+    api.getPendingUpdateStatus?.()
+      .then((res) => {
+        if (res?.result?.type === "update-available") {
+          showToastRef.current(res.result);
+        }
+      })
+      .catch(() => {});
+
     return () => {
       window.removeEventListener(UPDATE_TOAST_PREVIEW_EVENT, handlePreview);
+      // 清理 IPC 监听器，避免内存泄漏
+      if (typeof cleanupCheckResult === "function") cleanupCheckResult();
+      if (typeof cleanupProgress === "function") cleanupProgress();
     };
-  }, [showToast, toast?.releaseNotes]);
+  }, []); // 空依赖：仅 mount/unmount 时注册/清理
 
   const handleDownload = async () => {
     const api = window.electronAPI;

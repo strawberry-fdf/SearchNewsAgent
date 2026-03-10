@@ -25,13 +25,16 @@ function createElectronAPIMock(isElectron = true) {
     openExternal: vi.fn(),
     onUpdateCheckResult: vi.fn((cb: (data: unknown) => void) => {
       updateCallback = cb;
+      return () => { updateCallback = null; };
     }),
     onUpdateProgress: vi.fn((cb: (data: unknown) => void) => {
       progressCallback = cb;
+      return () => { progressCallback = null; };
     }),
-    onUpdateDownloading: vi.fn(),
+    onUpdateDownloading: vi.fn(() => () => {}),
     getPostUpdateReleaseNotes: vi.fn(async () => ({ releaseNotes: null })),
     dismissPostUpdateReleaseNotes: vi.fn(async () => ({ status: "ok" })),
+    getPendingUpdateStatus: vi.fn(async () => ({ result: null })),
   };
 }
 
