@@ -1,3 +1,11 @@
+## [1.0.12] - 2026-03-10
+
+### 发布说明
+- docs: update progress md
+- feat: test release notes
+
+- 版本更新
+
 ## [1.0.11] - 2026-03-10
 
 ### 发布说明

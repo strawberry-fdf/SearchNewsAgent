@@ -66,6 +66,8 @@
 - CI Publish Release 修复 (v1.0.11): 排除重复的 builder-debug.yml/builder-effective-config.yml，两步发布（create+upload --clobber），三平台构建+发布全部通过
 - 应用图标生成与发布: 从 logo.png 生成 icon.icns(macOS)/icon.ico(Windows)/icon.png(Linux)，.gitignore 白名单放行，已推送远程
 - 托盘图标修复: 生成 tray-icon.png/tray-iconTemplate.png/@2x 专用托盘图标；修复生产模式 fallback 路径错误；macOS 使用 Template 图标适配亮暗菜单栏；BrowserWindow 添加 icon 属性修复 Windows/Linux 任务栏图标
+- Windows 更新 browserforge 数据文件缺失修复 (v1.0.11): PyInstaller 新增 `--collect-data=browserforge` 和 `--collect-data=apify_fingerprint_datapoints`，补充 hidden imports for browserforge/apify_fingerprint_datapoints 模块层级；修复更新后启动报 `FileNotFoundError: input-network-definition.zip`
+- 更新 UX 重设计: 点击更新按钮后隐藏主窗口→弹出独立更新进度小窗口（frameless, always-on-top, 渐变进度条）→下载完成自动安装重启→重启后展示版本更新说明；新增 `electron/update.html`，修改 `electron/main.js` 更新窗口管理逻辑
 
 - 后端测试全覆盖: 283 个测试用例全部通过，覆盖 12 个模块（dedup/models/rules_engine/extractor/feishu/rss_fetcher/web_scraper/db/pipeline/api/cross_scenarios），含单元测试+集成测试+全场景交叉复杂测试
 - 前端测试全覆盖: 223 个测试用例全部通过（13 个测试文件），覆盖 api/ScoreBadge/ThemeProvider/Sidebar/ArticleCard/ArticleFeed/SourcePanel/SourceManager/StatsPanel/Settings/UpdateToast/Home(page) + 集成测试；测试框架 Vitest 4.0.18 + @testing-library/react + jest-dom + user-event + jsdom
@@ -96,7 +98,8 @@
 ## [Next Steps]
 1. 端到端验证 Scrapling 爬虫在实际 web 信源上的表现（静态 + Stealth 模式）
 2. 端到端验证 RSS 解析修复与 JSON Feed 在实际信源上的表现
-3. 端到端验证自动更新链路在真实 GitHub Release 下的行为（下载、安装、重启后说明展示）
+3. 恢复 `UPDATE_CHECK_INTERVAL` 为 4 小时生产值（当前为 1 分钟调试值）
+4. 端到端验证自动更新链路在真实 GitHub Release 下的行为（下载、安装、重启后说明展示）
 
 ## [Key Decisions / Context]
 - **爬虫底层库**: 从 httpx+BS4+Playwright 替换为 Scrapling——静态页面用 AsyncFetcher/FetcherSession（curl_cffi + TLS 伪装），动态页面用 AsyncStealthySession（Playwright + 反检测）；HTML 解析用 Scrapling Selector（lxml 内核，Scrapy 风格 CSS 伪元素），降噪用 lxml 直接 DOM 操作；Stealth 模式需额外执行 `scrapling install` 下载浏览器

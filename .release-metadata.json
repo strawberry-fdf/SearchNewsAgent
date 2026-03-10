@@ -1,14 +1,13 @@
 {
-  "version": "1.0.11",
-  "tag": "v1.0.11",
-  "previousTag": "v1.0.10",
-  "title": "AgentNews v1.0.11",
+  "version": "1.0.12",
+  "tag": "v1.0.12",
+  "previousTag": "v1.0.11",
+  "title": "AgentNews v1.0.12",
   "notes": [
-    "修复 Windows 更新后 browserforge 数据文件缺失导致启动报错",
-    "更新时关闭主窗口，弹出独立更新进度小窗口",
-    "更新完成自动安装并重启，展示版本更新说明"
+    "docs: update progress md",
+    "feat: test release notes"
   ],
-  "notesSource": "cli",
-  "body": "## 更新说明\n\n\n- 修复 Windows 更新后 browserforge 数据文件缺失导致启动报错\n- 更新时关闭主窗口，弹出独立更新进度小窗口\n- 更新完成自动安装并重启，展示版本更新说明\n\n## 变更摘要\n\n\n### 🐛 修复\n- 修复 browserforge 数据文件打包缺失 + 更新时切换为独立进度窗口\n",
-  "generatedAt": "2026-03-10T14:53:29.930Z"
+  "notesSource": "manual",
+  "body": "## 更新说明\n\n\n- docs: update progress md\n- feat: test release notes\n",
+  "generatedAt": "2026-03-10T15:27:48.110Z"
 }
