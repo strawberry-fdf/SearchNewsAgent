@@ -35,6 +35,8 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: 安装 pnpm
         uses: pnpm/action-setup@v4
@@ -111,6 +113,8 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: 下载所有构建产物
         uses: actions/download-artifact@v4
@@ -128,6 +132,9 @@ jobs:
           set -euo pipefail
 
           TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          NOTES_FILE="$(mktemp)"
+          TITLE_FILE="$(mktemp)"
 
           # 收集构建产物（排除 builder-debug / builder-effective-config 等重复文件）
           mapfile -d '' FILES < <(find release-assets -type f \( \
@@ -145,14 +152,99 @@ jobs:
             exit 1
           fi
 
+            PREV_TAG="$(git tag --sort=-version:refname | grep -Fxv "$TAG" | head -n1 || true)"
+
+            export TAG VERSION NOTES_FILE TITLE_FILE PREV_TAG
+            python3 <<'PY'
+      import json
+      import os
+      import subprocess
+
+      tag = os.environ["TAG"]
+      version = os.environ["VERSION"]
+      notes_file = os.environ["NOTES_FILE"]
+      title_file = os.environ["TITLE_FILE"]
+      prev_tag = os.environ.get("PREV_TAG", "").strip()
+
+
+      def run_git(*args):
+        result = subprocess.run(["git", *args], check=False, capture_output=True, text=True)
+        if result.returncode != 0:
+          return ""
+        return result.stdout.strip()
+
+
+      def should_ignore(message: str) -> bool:
+        lowered = message.lower()
+        return (
+          lowered.startswith("chore(release):")
+          or lowered.startswith("release v")
+          or lowered.startswith("merge ")
+        )
+
+
+      def fallback_notes() -> list[str]:
+        if prev_tag:
+          raw = run_git("--no-pager", "log", f"{prev_tag}..{tag}", "--format=%s", "--no-merges")
+        else:
+          raw = run_git("--no-pager", "log", tag, "-n", "20", "--format=%s", "--no-merges")
+        notes = []
+        for line in raw.splitlines():
+          message = line.strip()
+          if not message or should_ignore(message):
+            continue
+          notes.append(message)
+        return notes[:12]
+
+
+      metadata = {}
+      metadata_path = ".release-metadata.json"
+      if os.path.exists(metadata_path):
+        with open(metadata_path, "r", encoding="utf-8") as f:
+          try:
+            candidate = json.load(f)
+          except json.JSONDecodeError:
+            candidate = {}
+          if str(candidate.get("version")) == version:
+            metadata = candidate
+
+      notes = [str(note).strip() for note in metadata.get("notes", []) if str(note).strip()]
+      if not notes:
+        notes = fallback_notes()
+
+      body = str(metadata.get("body") or "").strip()
+      if not body:
+        bullet_lines = "\n".join(f"- {note}" for note in notes)
+        if not bullet_lines:
+          bullet_lines = "- 本次版本已完成发布，详细变更请查看提交记录。"
+        body = f"## 更新说明\n\n{bullet_lines}\n"
+
+      title = str(metadata.get("title") or f"AgentNews {tag}").strip()
+
+      with open(notes_file, "w", encoding="utf-8") as f:
+        f.write(body.rstrip() + "\n")
+
+      with open(title_file, "w", encoding="utf-8") as f:
+        f.write(title)
+      PY
+
+            RELEASE_TITLE="$(cat "$TITLE_FILE")"
+            echo "📝 Release 标题: $RELEASE_TITLE"
+            echo "📝 Release 说明:"
+            cat "$NOTES_FILE"
+            echo ""
+
           # 第一步：创建 Release（如果已存在则跳过）
           if gh release view "$TAG" &>/dev/null; then
-            echo "⚠️  Release $TAG 已存在，跳过创建，直接上传产物"
+            echo "⚠️  Release $TAG 已存在，更新说明后继续上传产物"
+            gh release edit "$TAG" \
+              --title "$RELEASE_TITLE" \
+              --notes-file "$NOTES_FILE"
           else
             echo "🚀 创建 GitHub Release: $TAG"
             gh release create "$TAG" \
-              --title "Release $TAG" \
-              --generate-notes
+              --title "$RELEASE_TITLE" \
+              --notes-file "$NOTES_FILE"
           fi
 
           # 第二步：上传产物（--clobber 覆盖同名文件，防止重试 422）

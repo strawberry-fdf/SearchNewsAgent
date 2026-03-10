@@ -145,8 +145,13 @@ const HIDDEN_IMPORTS = [
   'httpx._transports',
   'httpx._transports.default',
   'httpcore',
+  'lxml',
+  'lxml.etree',
+  'lxml.html',
   'markdownify',
-  'bs4',
+  'scrapling',
+  'scrapling.fetchers',
+  'scrapling.parser',
   'openai',
   'anthropic',
   'pydantic',
@@ -173,6 +178,8 @@ const COLLECT_SUBMODULES = [
   'openai',
   'anthropic',
   'httpcore',
+  'scrapling',
+  'lxml',
 ];
 
 // 排除不需要的模块（避免 collect-submodules 导入失败）

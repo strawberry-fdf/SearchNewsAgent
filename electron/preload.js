@@ -33,6 +33,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   /** 启动应用内更新下载并安装（Win/Linux） */
   startUpdateInstallation: () => ipcRenderer.invoke("start-update-installation"),
 
+  /** 获取更新后首次启动需要展示的发布说明 */
+  getPostUpdateReleaseNotes: () => ipcRenderer.invoke("get-post-update-release-notes"),
+
+  /** 关闭更新后说明弹窗并清除待展示状态 */
+  dismissPostUpdateReleaseNotes: () => ipcRenderer.invoke("dismiss-post-update-release-notes"),
+
   /** 监听更新检查结果（前端 Toast 展示） */
   onUpdateCheckResult: (callback) => {
     ipcRenderer.on("update-check-result", (_event, data) => callback(data));

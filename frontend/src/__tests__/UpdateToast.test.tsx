@@ -6,9 +6,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import UpdateToast from "@/components/UpdateToast";
+import {
+  UPDATE_TOAST_PREVIEW_EVENT,
+  createPreviewUpdateResult,
+} from "@/lib/electron";
 
 // 存储 IPC 回调
 let updateCallback: ((data: unknown) => void) | null = null;
+let progressCallback: ((data: unknown) => void) | null = null;
 
 function createElectronAPIMock(isElectron = true) {
   return {
@@ -21,14 +26,19 @@ function createElectronAPIMock(isElectron = true) {
     onUpdateCheckResult: vi.fn((cb: (data: unknown) => void) => {
       updateCallback = cb;
     }),
-    onUpdateProgress: vi.fn(),
+    onUpdateProgress: vi.fn((cb: (data: unknown) => void) => {
+      progressCallback = cb;
+    }),
     onUpdateDownloading: vi.fn(),
+    getPostUpdateReleaseNotes: vi.fn(async () => ({ releaseNotes: null })),
+    dismissPostUpdateReleaseNotes: vi.fn(async () => ({ status: "ok" })),
   };
 }
 
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   updateCallback = null;
+  progressCallback = null;
 });
 
 afterEach(() => {
@@ -154,6 +164,42 @@ describe("UpdateToast — 有更新可用", () => {
     await user.click(screen.getByText("更新"));
     expect(mock.startUpdateInstallation).toHaveBeenCalledTimes(1);
     expect(mock.openExternal).not.toHaveBeenCalled();
+  });
+
+  it("收到下载进度时展示百分比与进度条文案", async () => {
+    const mock = createElectronAPIMock();
+    mock.platform = "win32";
+    Object.defineProperty(window, "electronAPI", {
+      writable: true,
+      value: mock,
+    });
+
+    render(<UpdateToast />);
+
+    act(() => {
+      updateCallback?.({
+        type: "update-available",
+        version: "2.0.0",
+        updateMode: "in-app",
+        releaseNotes: {
+          title: "AgentNews v2.0.0",
+          version: "2.0.0",
+          notes: ["新增更新说明面板"],
+          source: "release",
+        },
+      });
+      progressCallback?.({
+        version: "2.0.0",
+        percent: 42,
+        transferred: 42 * 1024 * 1024,
+        total: 100 * 1024 * 1024,
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("正在下载更新 42%")).toBeInTheDocument();
+      expect(screen.getByText("42% · 42MB / 100MB")).toBeInTheDocument();
+    });
   });
 
   it("Windows 平台不支持应用内更新时显示错误，不跳转外链", async () => {
@@ -317,6 +363,24 @@ describe("UpdateToast — 手动关闭", () => {
         const container = toast.closest("div.fixed");
         expect(container?.className).toContain("opacity-0");
       }
+    });
+  });
+});
+
+describe("UpdateToast — 本地预览事件", () => {
+  it("收到预览事件时显示模拟更新提示", async () => {
+    render(<UpdateToast />);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(UPDATE_TOAST_PREVIEW_EVENT, {
+          detail: createPreviewUpdateResult(),
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("v9.9.9-preview 新版本可用")).toBeInTheDocument();
     });
   });
 });

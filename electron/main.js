@@ -41,6 +41,7 @@ let tray = null;
 let isQuitting = false;
 let isUpdateDownloading = false;
 let isManualUpdaterCheck = false;
+let availableUpdateContext = null;
 
 // ─── 日志辅助 ────────────────────────────────────────────────
 function log(msg) {
@@ -542,7 +543,218 @@ const UPDATE_CHECK_INTERVAL = 60_000; // 定期检查间隔 (1 分钟，测试�
 const UPDATE_REQUEST_TIMEOUT = 15_000;    // 单次请求超时 (15 秒)
 const UPDATE_MAX_RETRIES = 2;             // 最大重试次数
 const UPDATE_RETRY_DELAY = 5_000;         // 重试间隔 (5 秒)
-const GITHUB_API_URL = "https://api.github.com/repos/strawberry-fdf/SearchNewsAgent/releases/latest";
+const GITHUB_OWNER = "strawberry-fdf";
+const GITHUB_REPO = "SearchNewsAgent";
+const GITHUB_API_BASE_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}`;
+const GITHUB_API_URL = `${GITHUB_API_BASE_URL}/releases/latest`;
+const POST_UPDATE_RELEASE_NOTES_FILE = "post-update-release-notes.json";
+
+function getPostUpdateReleaseNotesPath() {
+  return path.join(getUserDataDir(), POST_UPDATE_RELEASE_NOTES_FILE);
+}
+
+function safeReadJson(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    return JSON.parse(fs.readFileSync(filePath, "utf-8"));
+  } catch (err) {
+    log(`读取 JSON 文件失败: ${filePath} (${err.message})`);
+    return null;
+  }
+}
+
+function safeWriteJson(filePath, payload) {
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(payload, null, 2) + "\n", "utf-8");
+  } catch (err) {
+    log(`写入 JSON 文件失败: ${filePath} (${err.message})`);
+  }
+}
+
+function deleteFileIfExists(filePath) {
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (err) {
+    log(`删除文件失败: ${filePath} (${err.message})`);
+  }
+}
+
+function normalizeReleaseNoteLines(text) {
+  if (!text || typeof text !== "string") return [];
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^#+\s/.test(line))
+    .map((line) => line.replace(/^[-*+]\s+/, ""))
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+function shouldIgnoreCommitMessage(message) {
+  return [
+    /^chore\(release\):/i,
+    /^release\s+v?\d+/i,
+    /^merge\s+/i,
+  ].some((pattern) => pattern.test(message));
+}
+
+function flattenUpdaterReleaseNotes(releaseNotes) {
+  if (!releaseNotes) return "";
+  if (typeof releaseNotes === "string") return releaseNotes;
+  if (Array.isArray(releaseNotes)) {
+    return releaseNotes
+      .map((item) => {
+        if (!item) return "";
+        if (typeof item === "string") return item;
+        return item.note || item.body || item.releaseNotes || "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (typeof releaseNotes === "object") {
+    return releaseNotes.note || releaseNotes.body || releaseNotes.releaseNotes || "";
+  }
+  return "";
+}
+
+function requestGitHubJson(url) {
+  return new Promise((resolve, reject) => {
+    try {
+      const req = net.request({ url, method: "GET" });
+      req.setHeader("User-Agent", `AgentNews/${app.getVersion()}`);
+      req.setHeader("Accept", "application/vnd.github.v3+json");
+
+      const timeoutId = setTimeout(() => {
+        req.abort();
+        reject(new Error("GitHub API 请求超时"));
+      }, UPDATE_REQUEST_TIMEOUT);
+
+      req.on("response", (res) => {
+        let data = "";
+        res.on("data", (chunk) => {
+          data += chunk.toString();
+        });
+        res.on("end", () => {
+          clearTimeout(timeoutId);
+          if (res.statusCode !== 200) {
+            const error = new Error(`GitHub API 返回 ${res.statusCode}`);
+            error.statusCode = res.statusCode;
+            reject(error);
+            return;
+          }
+          try {
+            resolve(JSON.parse(data));
+          } catch (err) {
+            reject(err);
+          }
+        });
+        res.on("error", (err) => {
+          clearTimeout(timeoutId);
+          reject(err);
+        });
+      });
+
+      req.on("error", (err) => {
+        clearTimeout(timeoutId);
+        reject(err);
+      });
+
+      req.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+async function fetchReleasePayloadByVersion(version) {
+  if (!version) return null;
+  try {
+    return await requestGitHubJson(`${GITHUB_API_BASE_URL}/releases/tags/v${version}`);
+  } catch (err) {
+    if (err?.statusCode === 404) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+async function fetchCompareCommitNotes(fromVersion, toVersion) {
+  if (!fromVersion || !toVersion) return [];
+  try {
+    const compare = await requestGitHubJson(`${GITHUB_API_BASE_URL}/compare/v${fromVersion}...v${toVersion}`);
+    const commits = Array.isArray(compare?.commits) ? compare.commits : [];
+    return commits
+      .map((commit) => String(commit?.commit?.message || "").trim().split("\n")[0])
+      .filter(Boolean)
+      .filter((message) => !shouldIgnoreCommitMessage(message))
+      .slice(0, 12);
+  } catch (err) {
+    log(`获取 commit 对比说明失败: ${err.message}`);
+    return [];
+  }
+}
+
+async function resolveReleaseContext(targetVersion, options = {}) {
+  const currentVersion = app.getVersion();
+  let releasePayload = options.release || null;
+
+  if (!releasePayload && targetVersion) {
+    try {
+      releasePayload = await fetchReleasePayloadByVersion(targetVersion);
+    } catch (err) {
+      log(`按版本拉取 Release 详情失败: ${err.message}`);
+    }
+  }
+
+  const fallbackBody = flattenUpdaterReleaseNotes(options.fallbackBody);
+  let notes = normalizeReleaseNoteLines(releasePayload?.body || fallbackBody);
+  let source = releasePayload?.body ? "release" : fallbackBody ? "updater" : "compare-commits";
+
+  if (notes.length === 0 && currentVersion && targetVersion) {
+    notes = await fetchCompareCommitNotes(currentVersion, targetVersion);
+    if (notes.length > 0) {
+      source = "compare-commits";
+    }
+  }
+
+  if (notes.length === 0) {
+    notes = ["本次版本已完成更新，详细变更请查看 GitHub Release 页面。"];
+  }
+
+  return {
+    title: releasePayload?.name || `AgentNews v${targetVersion}`,
+    version: targetVersion,
+    previousVersion: currentVersion,
+    currentVersion,
+    publishedAt: releasePayload?.published_at || options.fallbackPublishedAt || null,
+    downloadUrl: releasePayload?.html_url || options.fallbackDownloadUrl || null,
+    notes,
+    body: releasePayload?.body || fallbackBody || "",
+    source,
+  };
+}
+
+function persistPostUpdateReleaseNotes(releaseContext) {
+  if (!releaseContext?.version) return;
+  safeWriteJson(getPostUpdateReleaseNotesPath(), {
+    ...releaseContext,
+    savedAt: new Date().toISOString(),
+  });
+}
+
+function readPostUpdateReleaseNotes() {
+  const filePath = getPostUpdateReleaseNotesPath();
+  const payload = safeReadJson(filePath);
+  if (!payload) return null;
+  if (payload.version !== app.getVersion()) {
+    deleteFileIfExists(filePath);
+    return null;
+  }
+  return payload;
+}
 
 /**
  * 判断 electron-updater 错误是否适合回退到 GitHub Releases API 检查。
@@ -650,17 +862,37 @@ function setupElectronUpdater() {
   });
 
   autoUpdater.on("update-available", (info) => {
-    log(`发现新版本: v${info.version}`);
-    sendUpdateResult({
-      type: "update-available",
-      version: info.version,
-      updateMode: "in-app",
-    }, isManualUpdaterCheck);
+    const manual = isManualUpdaterCheck;
     isManualUpdaterCheck = false;
+    log(`发现新版本: v${info.version}`);
+
+    resolveReleaseContext(info.version, {
+      fallbackBody: info.releaseNotes,
+      fallbackPublishedAt: info.releaseDate,
+    })
+      .then((releaseContext) => {
+        availableUpdateContext = releaseContext;
+        sendUpdateResult({
+          type: "update-available",
+          version: info.version,
+          updateMode: "in-app",
+          releaseNotes: releaseContext,
+        }, manual);
+      })
+      .catch((err) => {
+        log(`解析应用内更新说明失败: ${err.message}`);
+        availableUpdateContext = null;
+        sendUpdateResult({
+          type: "update-available",
+          version: info.version,
+          updateMode: "in-app",
+        }, manual);
+      });
   });
 
   autoUpdater.on("update-not-available", (info) => {
     log("当前已是最新版本");
+    availableUpdateContext = null;
     if (isManualUpdaterCheck) {
       sendUpdateResult({ type: "up-to-date", version: info?.version }, true);
       isManualUpdaterCheck = false;
@@ -671,9 +903,11 @@ function setupElectronUpdater() {
     log(`下载进度: ${progress.percent.toFixed(1)}%`);
     if (mainWindow) {
       mainWindow.webContents.send("update-progress", {
+        version: availableUpdateContext?.version,
         percent: progress.percent,
         transferred: progress.transferred,
         total: progress.total,
+        bytesPerSecond: progress.bytesPerSecond,
       });
     }
   });
@@ -681,7 +915,27 @@ function setupElectronUpdater() {
   autoUpdater.on("update-downloaded", (info) => {
     log(`更新已下载: v${info.version}，开始静默安装并重启`);
     isUpdateDownloading = false;
+    const releaseContext = availableUpdateContext || {
+      title: `AgentNews v${info.version}`,
+      version: info.version,
+      previousVersion: app.getVersion(),
+      currentVersion: app.getVersion(),
+      publishedAt: null,
+      downloadUrl: null,
+      notes: ["本次版本已完成更新，详细变更请查看 GitHub Release 页面。"],
+      body: "",
+      source: "updater",
+    };
+    persistPostUpdateReleaseNotes(releaseContext);
     try {
+      isQuitting = true;
+      sendUpdateResult({
+        type: "installing",
+        version: info.version,
+        updateMode: "in-app",
+        message: "更新包已下载完成，正在关闭并安装…",
+        releaseNotes: releaseContext,
+      }, true);
       autoUpdater.quitAndInstall(true, true);
     } catch (err) {
       log(`执行安装失败: ${err.message}`);
@@ -770,53 +1024,63 @@ function checkGitHubRelease(manual = false, retryCount = 0) {
       res.on("data", (chunk) => (data += chunk.toString()));
       res.on("end", () => {
         clearTimeout(timeoutId);
-        try {
-          if (res.statusCode === 404) {
-            // 仓库尚无 Release，属于正常状态
-            log("尚无 GitHub Release，跳过更新检查");
-            if (manual) {
-              sendUpdateResult({ type: "up-to-date" }, true);
+        (async () => {
+          try {
+            if (res.statusCode === 404) {
+              // 仓库尚无 Release，属于正常状态
+              log("尚无 GitHub Release，跳过更新检查");
+              if (manual) {
+                sendUpdateResult({ type: "up-to-date" }, true);
+              }
+              return;
             }
-            return;
-          }
-          if (res.statusCode === 403) {
-            // GitHub API 限流 (60 次/小时 无认证)
-            log("GitHub API 限流 (403)，稍后重试");
-            handleRetryableError("API 请求频率超限");
-            return;
-          }
-          if (res.statusCode !== 200) {
-            log(`GitHub API 返回 ${res.statusCode}，跳过更新检查`);
-            if (manual) {
-              sendUpdateResult({ type: "error", message: `服务器返回 ${res.statusCode}，请稍后重试` }, true);
+            if (res.statusCode === 403) {
+              // GitHub API 限流 (60 次/小时 无认证)
+              log("GitHub API 限流 (403)，稍后重试");
+              handleRetryableError("API 请求频率超限");
+              return;
             }
-            return;
-          }
+            if (res.statusCode !== 200) {
+              log(`GitHub API 返回 ${res.statusCode}，跳过更新检查`);
+              if (manual) {
+                sendUpdateResult({ type: "error", message: `服务器返回 ${res.statusCode}，请稍后重试` }, true);
+              }
+              return;
+            }
 
-          const release = JSON.parse(data);
-          const latestTag = release.tag_name || "";
-          const latestVersion = latestTag.replace(/^v/, "");
+            const release = JSON.parse(data);
+            const latestTag = release.tag_name || "";
+            const latestVersion = latestTag.replace(/^v/, "");
 
-          if (isNewerVersion(latestVersion, currentVersion)) {
-            log(`发现新版本 v${latestVersion} (当前 v${currentVersion})`);
-            sendUpdateResult({
-              type: "update-available",
-              version: latestVersion,
-              downloadUrl: release.html_url,
-              updateMode: "external",
-            }, manual);
-          } else {
-            log(`当前已是最新版本 (v${currentVersion})`);
+            if (isNewerVersion(latestVersion, currentVersion)) {
+              log(`发现新版本 v${latestVersion} (当前 v${currentVersion})`);
+              const releaseContext = await resolveReleaseContext(latestVersion, {
+                release,
+                fallbackDownloadUrl: release.html_url,
+                fallbackPublishedAt: release.published_at,
+              });
+              availableUpdateContext = releaseContext;
+              sendUpdateResult({
+                type: "update-available",
+                version: latestVersion,
+                downloadUrl: release.html_url,
+                updateMode: "external",
+                releaseNotes: releaseContext,
+              }, manual);
+            } else {
+              log(`当前已是最新版本 (v${currentVersion})`);
+              availableUpdateContext = null;
+              if (manual) {
+                sendUpdateResult({ type: "up-to-date" }, true);
+              }
+            }
+          } catch (err) {
+            log(`解析 GitHub Release 响应失败: ${err.message}`);
             if (manual) {
-              sendUpdateResult({ type: "up-to-date" }, true);
+              sendUpdateResult({ type: "error", message: "解析服务器响应失败" }, true);
             }
           }
-        } catch (err) {
-          log(`解析 GitHub Release 响应失败: ${err.message}`);
-          if (manual) {
-            sendUpdateResult({ type: "error", message: "解析服务器响应失败" }, true);
-          }
-        }
+        })();
       });
 
       res.on("error", (err) => {
@@ -884,7 +1148,13 @@ ipcMain.handle("start-update-installation", async () => {
 
   try {
     isUpdateDownloading = true;
-    sendUpdateResult({ type: "checking", message: "正在下载更新包…" }, true);
+    sendUpdateResult({
+      type: "downloading",
+      message: "正在准备下载更新包…",
+      version: availableUpdateContext?.version,
+      updateMode: "in-app",
+      releaseNotes: availableUpdateContext,
+    }, true);
     await autoUpdater.downloadUpdate();
     return { status: "started" };
   } catch (err) {
@@ -893,6 +1163,17 @@ ipcMain.handle("start-update-installation", async () => {
     sendUpdateResult({ type: "error", message: "启动更新下载失败，请稍后重试" }, true);
     return { status: "error", message: "启动更新下载失败" };
   }
+});
+
+ipcMain.handle("get-post-update-release-notes", async () => {
+  return {
+    releaseNotes: readPostUpdateReleaseNotes(),
+  };
+});
+
+ipcMain.handle("dismiss-post-update-release-notes", async () => {
+  deleteFileIfExists(getPostUpdateReleaseNotesPath());
+  return { status: "ok" };
 });
 
 // ─── IPC: 渲染进程请求打开外部链接 ─────────────────────────

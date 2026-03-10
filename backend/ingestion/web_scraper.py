@@ -13,14 +13,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urljoin, urlparse
 
-from lxml import html as lxml_html
 from markdownify import markdownify as md
 from scrapling.fetchers import AsyncFetcher, FetcherSession
 from scrapling.parser import Selector
+
+try:
+    from lxml import html as lxml_html
+except ImportError:  # pragma: no cover - 由环境依赖决定是否触发
+    lxml_html = None
 
 from backend.ingestion.dedup import url_hash
 
@@ -40,6 +45,16 @@ _MAX_HTML_SIZE = 50_000
 _NOISE_TAGS = ("nav", "footer", "header", "aside", "script", "style", "noscript")
 _NOISE_CLASSES = (
     "sidebar", "advertisement", "ad-container", "cookie-banner", "popup",
+)
+_TAG_BLOCK_PATTERN = re.compile(
+    r"<(?P<tag>nav|footer|header|aside|script|style|noscript)\b[^>]*>.*?</(?P=tag)>",
+    re.IGNORECASE | re.DOTALL,
+)
+_NOISE_CLASS_PATTERN = re.compile(
+    r"<(?P<tag>[a-z0-9]+)\b[^>]*class=[\"'][^\"']*"
+    r"(?:sidebar|advertisement|ad-container|cookie-banner|popup)[^\"']*[\"'][^>]*>"
+    r".*?</(?P=tag)>",
+    re.IGNORECASE | re.DOTALL,
 )
 
 
@@ -271,6 +286,10 @@ def _html_to_markdown(html: str) -> str:
     if not html or not html.strip():
         return ""
 
+    if lxml_html is None:
+        logger.warning("lxml is not installed; using simplified HTML cleanup fallback")
+        return _fallback_html_to_markdown(html)
+
     try:
         doc = lxml_html.document_fromstring(html)
     except Exception:
@@ -316,7 +335,7 @@ def _extract_title(page_or_html: Union[str, Any]) -> str:
     """从页面中提取标题：优先 <h1>，回退 <title>。"""
     page = _ensure_selector(page_or_html)
     if page is None:
-        return ""
+        return _extract_title_fallback(page_or_html if isinstance(page_or_html, str) else "")
 
     h1_text = page.css("h1::text").get()
     if h1_text and h1_text.strip():
@@ -325,6 +344,33 @@ def _extract_title(page_or_html: Union[str, Any]) -> str:
     title_text = page.css("title::text").get()
     if title_text and title_text.strip():
         return title_text.strip()
+
+    return ""
+
+
+def _fallback_html_to_markdown(html: str) -> str:
+    """在缺少 lxml 时执行轻量级降噪，避免模块导入直接中断。"""
+    stripped_html = _TAG_BLOCK_PATTERN.sub("", html)
+    stripped_html = _NOISE_CLASS_PATTERN.sub("", stripped_html)
+    return md(stripped_html).strip()
+
+
+def _extract_title_fallback(html: str) -> str:
+    """缺少 Selector 或 HTML 解析失败时的标题兜底。"""
+    if not html:
+        return ""
+
+    h1_match = re.search(r"<h1\b[^>]*>(.*?)</h1>", html, re.IGNORECASE | re.DOTALL)
+    if h1_match:
+        h1_text = re.sub(r"<[^>]+>", " ", h1_match.group(1)).strip()
+        if h1_text:
+            return " ".join(h1_text.split())
+
+    title_match = re.search(r"<title\b[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
+    if title_match:
+        title_text = re.sub(r"<[^>]+>", " ", title_match.group(1)).strip()
+        if title_text:
+            return " ".join(title_text.split())
 
     return ""
 

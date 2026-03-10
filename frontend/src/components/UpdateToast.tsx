@@ -8,22 +8,17 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { X, ArrowUpCircle, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
-
-/** 更新检查结果类型 */
-interface UpdateResult {
-  type: "update-available" | "up-to-date" | "error" | "checking";
-  version?: string;
-  currentVersion?: string;
-  downloadUrl?: string;
-  updateMode?: "in-app" | "external";
-  message?: string;
-  manual?: boolean;
-}
+import {
+  UPDATE_TOAST_PREVIEW_EVENT,
+  type UpdateProgressPayload,
+  type UpdateResult,
+} from "@/lib/electron";
 
 export default function UpdateToast() {
   const [toast, setToast] = useState<UpdateResult | null>(null);
   const [visible, setVisible] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [progress, setProgress] = useState<UpdateProgressPayload | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearTimer = useCallback(() => {
@@ -41,28 +36,65 @@ export default function UpdateToast() {
   const autoHide = useCallback(
     (result: UpdateResult) => {
       clearTimer();
-      // "有更新"常驻，其他 5 秒后自动关闭
-      if (result.type !== "update-available") {
+      // 需要用户持续感知的状态常驻展示
+      if (!["update-available", "downloading", "installing"].includes(result.type)) {
         timerRef.current = setTimeout(dismiss, 5000);
       }
     },
     [clearTimer, dismiss]
   );
 
-  useEffect(() => {
-    const api = typeof window !== "undefined" ? window.electronAPI : null;
-    if (!api?.isElectron) return;
-
-    api.onUpdateCheckResult((data) => {
-      const result = data as UpdateResult;
+  const showToast = useCallback(
+    (result: UpdateResult) => {
       setToast(result);
-      if (result.type !== "update-available") {
+      if (!["update-available", "downloading", "installing"].includes(result.type)) {
         setUpdating(false);
+      }
+      if (result.type === "update-available") {
+        setProgress(null);
       }
       setVisible(true);
       autoHide(result);
+    },
+    [autoHide]
+  );
+
+  useEffect(() => {
+    const api = typeof window !== "undefined" ? window.electronAPI : null;
+    const handlePreview = (event: Event) => {
+      const detail = (event as CustomEvent<UpdateResult>).detail;
+      if (detail) {
+        showToast(detail);
+      }
+    };
+
+    window.addEventListener(UPDATE_TOAST_PREVIEW_EVENT, handlePreview);
+
+    if (!api?.isElectron) {
+      return () => {
+        window.removeEventListener(UPDATE_TOAST_PREVIEW_EVENT, handlePreview);
+      };
+    }
+
+    api.onUpdateCheckResult((data) => {
+      showToast(data);
     });
-  }, [autoHide]);
+
+    api.onUpdateProgress((data) => {
+      setUpdating(true);
+      setProgress(data);
+      showToast({
+        type: "downloading",
+        version: data.version,
+        updateMode: "in-app",
+        releaseNotes: toast?.releaseNotes ?? null,
+      });
+    });
+
+    return () => {
+      window.removeEventListener(UPDATE_TOAST_PREVIEW_EVENT, handlePreview);
+    };
+  }, [showToast, toast?.releaseNotes]);
 
   const handleDownload = async () => {
     const api = window.electronAPI;
@@ -77,19 +109,43 @@ export default function UpdateToast() {
       const res = await api.startUpdateInstallation();
       if (res?.status === "error") {
         setUpdating(false);
-        setToast({ type: "error", message: res.message || "更新启动失败" });
+        setProgress(null);
+        showToast({ type: "error", message: res.message || "更新启动失败" });
       }
       if (res?.status === "unsupported") {
         setUpdating(false);
-        setToast({ type: "error", message: "当前平台不支持应用内静默更新" });
+        setProgress(null);
+        showToast({ type: "error", message: "当前平台不支持应用内静默更新" });
       }
       return;
     }
 
-    setToast({ type: "error", message: "当前环境未启用应用内更新能力" });
+    showToast({ type: "error", message: "当前环境未启用应用内更新能力" });
   };
 
   if (!toast) return null;
+
+  const progressPercent = progress ? Math.max(0, Math.min(100, Math.round(progress.percent))) : 0;
+  const noteCount = toast.releaseNotes?.notes.length ?? 0;
+
+  function getMessage(result: UpdateResult) {
+    if (result.type === "update-available") {
+      return `v${result.version} 新版本可用`;
+    }
+    if (result.type === "up-to-date") {
+      return "已是最新版本";
+    }
+    if (result.type === "checking") {
+      return result.message || "正在检查更新…";
+    }
+    if (result.type === "downloading") {
+      return `正在下载更新 ${progressPercent}%`;
+    }
+    if (result.type === "installing") {
+      return result.message || "更新包已就绪，正在关闭并安装…";
+    }
+    return result.message || "检查更新失败";
+  }
 
   return (
     <div
@@ -99,48 +155,74 @@ export default function UpdateToast() {
           : "translate-y-4 opacity-0 pointer-events-none"
       }`}
     >
-      <div className="flex items-center gap-3 bg-dark-card border border-dark-border rounded-full shadow-lg pl-4 pr-2 py-2">
-        {/* 图标 */}
-        {toast.type === "update-available" && (
-          <ArrowUpCircle size={16} className="text-emerald-400 shrink-0" />
-        )}
-        {toast.type === "up-to-date" && (
-          <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
-        )}
-        {toast.type === "error" && (
-          <AlertCircle size={16} className="text-red-400 shrink-0" />
-        )}
-        {toast.type === "checking" && (
-          <Loader2 size={16} className="text-dark-accent animate-spin shrink-0" />
-        )}
+      <div className="w-[min(420px,calc(100vw-2rem))] rounded-3xl border border-dark-border bg-dark-card shadow-[0_18px_48px_rgba(0,0,0,0.38)]">
+        <div className="flex items-start gap-3 px-4 pb-3 pt-4">
+          <div className="pt-0.5">
+            {toast.type === "update-available" && (
+              <ArrowUpCircle size={18} className="text-emerald-400 shrink-0" />
+            )}
+            {toast.type === "up-to-date" && (
+              <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
+            )}
+            {toast.type === "error" && (
+              <AlertCircle size={18} className="text-red-400 shrink-0" />
+            )}
+            {["checking", "downloading", "installing"].includes(toast.type) && (
+              <Loader2 size={18} className="animate-spin shrink-0 text-dark-accent" />
+            )}
+          </div>
 
-        {/* 文案 */}
-        <span className="text-sm text-dark-text whitespace-nowrap">
-          {toast.type === "update-available" &&
-            `v${toast.version} 新版本可用`}
-          {toast.type === "up-to-date" && "已是最新版本"}
-          {toast.type === "error" && (toast.message || "检查更新失败")}
-          {toast.type === "checking" && "正在检查更新…"}
-        </span>
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-dark-text">{getMessage(toast)}</p>
+              {toast.type === "update-available" && noteCount > 0 && (
+                <p className="text-xs text-dark-muted">本次版本包含 {noteCount} 条更新说明，安装完成后会自动展示。</p>
+              )}
+              {toast.type === "downloading" && (
+                <p className="text-xs text-dark-muted">下载完成后将自动关闭当前应用并安装更新。</p>
+              )}
+              {toast.type === "installing" && (
+                <p className="text-xs text-dark-muted">安装完成后会自动重新打开客户端。</p>
+              )}
+            </div>
 
-        {/* 更新按钮（仅有新版本时显示） */}
-        {toast.type === "update-available" && (
-          <button
-            onClick={handleDownload}
-            disabled={updating}
-            className="shrink-0 px-3 py-1 rounded-full bg-dark-accent text-black text-xs font-medium hover:bg-dark-accent/80 transition-colors"
-          >
-            {updating ? "更新中…" : "更新"}
-          </button>
-        )}
+            {(toast.type === "downloading" || toast.type === "installing") && (
+              <div className="space-y-1.5">
+                <div className="h-1.5 overflow-hidden rounded-full bg-dark-surface">
+                  <div
+                    className="h-full rounded-full bg-dark-accent transition-[width] duration-300"
+                    style={{ width: `${toast.type === "installing" ? 100 : progressPercent}%` }}
+                  />
+                </div>
+                <p className="text-[11px] text-dark-muted">
+                  {toast.type === "installing"
+                    ? "安装准备中…"
+                    : `${progressPercent}% · ${Math.round((progress?.transferred ?? 0) / 1024 / 1024)}MB / ${Math.max(1, Math.round((progress?.total ?? 1) / 1024 / 1024))}MB`}
+                </p>
+              </div>
+            )}
+          </div>
 
-        {/* 关闭 */}
-        <button
-          onClick={dismiss}
-          className="shrink-0 p-1 rounded-full hover:bg-dark-surface text-dark-muted hover:text-dark-text transition-colors"
-        >
-          <X size={14} />
-        </button>
+          <div className="flex items-center gap-2">
+            {toast.type === "update-available" && (
+              <button
+                onClick={handleDownload}
+                disabled={updating}
+                className="shrink-0 rounded-full bg-dark-accent px-3 py-1.5 text-xs font-medium text-black transition-colors hover:bg-dark-accent/80 disabled:opacity-60"
+              >
+                {updating ? "准备中…" : "更新"}
+              </button>
+            )}
+
+            <button
+              onClick={dismiss}
+              className="shrink-0 rounded-full p-1 text-dark-muted transition-colors hover:bg-dark-surface hover:text-dark-text"
+              aria-label="关闭更新提示"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

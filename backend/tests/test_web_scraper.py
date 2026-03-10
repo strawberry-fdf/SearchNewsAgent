@@ -22,6 +22,7 @@ from backend.ingestion.web_scraper import (
     _html_to_markdown,
     scrape_web_page,
 )
+import backend.ingestion.web_scraper as web_scraper
 
 
 # ──────────────────────────────────────────────────────────────
@@ -122,6 +123,15 @@ class TestHtmlToMarkdown:
         # sidebar 应被移除
         assert "Main" in result
 
+    def test_fallback_without_lxml(self, monkeypatch):
+        """缺少 lxml 时应降级为轻量清洗而不是抛错。"""
+        monkeypatch.setattr(web_scraper, "lxml_html", None)
+        html = "<html><body><script>alert('bad')</script><div class='sidebar'>Ad</div><main><p>Main</p></main></body></html>"
+        result = _html_to_markdown(html)
+        assert "alert" not in result
+        assert "Ad" not in result
+        assert "Main" in result
+
 
 # ──────────────────────────────────────────────────────────────
 # _extract_title 测试
@@ -149,6 +159,12 @@ class TestExtractTitle:
         """空 <h1> 时应回退到 <title>。"""
         html = "<html><head><title>Fallback</title></head><body><h1>  </h1></body></html>"
         assert _extract_title(html) == "Fallback"
+
+    def test_title_fallback_without_selector(self, monkeypatch):
+        """Selector 解析失败时仍应通过正则兜底提取标题。"""
+        monkeypatch.setattr(web_scraper, "_ensure_selector", lambda _html: None)
+        html = "<html><head><title>Fallback Title</title></head><body><h1>H1 Title</h1></body></html>"
+        assert _extract_title(html) == "H1 Title"
 
 
 # ──────────────────────────────────────────────────────────────

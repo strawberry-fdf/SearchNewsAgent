@@ -1,4 +1,6 @@
 ## [Completed]
+- **网页爬虫 lxml 依赖修复**: `web_scraper.py` 顶层导入改为可选依赖，缺少 `lxml` 时自动降级为轻量 HTML 降噪 + markdownify，避免后端启动直接因 ModuleNotFoundError 崩溃；`backend/requirements.txt` 显式补充 `lxml`，`scripts/build-backend.mjs` 同步加入 `lxml` / `scrapling` 打包收集；新增 `docs/ingestion/01-web-scraper-lxml-fallback.md`；当前环境已完成依赖安装、定向测试、全量后端测试与后端入口导入验证
+- **Release 说明贯通自动更新链路**: `scripts/release.mjs` 新增 release 更新要点录入与 `.release-metadata.json` 生成；GitHub Actions 发布 Release 时优先读取该元数据写入正文，缺失则自动回退为版本区间 commit message 列表；Electron 自动更新新增下载进度反馈、安装前持久化发布说明、应用重启后在首页 body 内弹出可关闭的更新说明窗口；设置页新增开发环境「预览更新提示 / 预览更新说明」按钮，前端测试覆盖预览与进度场景
 - **爬虫模块 Scrapling 重构**: `web_scraper.py` 底层库从 httpx+BS4+Playwright 全面替换为 Scrapling——静态页面使用 `AsyncFetcher`+`FetcherSession`（TLS 指纹伪装+连接池复用+内置重试），动态/反爬页面使用 `AsyncStealthySession`（Playwright+反检测绕过 Cloudflare 等）；链接/标题提取改用 Scrapling `Selector`（比 BS4 快 ~784x）；HTML 降噪改用 `lxml` 直接操作 DOM；文章抓取从串行改为 `asyncio.Semaphore(5)` 并发限流；新增 HTTP 状态码分级处理（429 限流/403 封禁/5xx 兜底）；`requirements.txt` 添加 `scrapling[fetchers]`、移除 `beautifulsoup4`+Playwright 注释；测试 20 项全通过（含新增 non-200/网络错误/并发场景），全量 311 测试无回归
 - **RSS 解析完备性修复 + JSON Feed 支持**: 移除 `_MAX_ENTRIES_PER_FEED=30` 硬性截断，所有 feed entries 全量解析；修复 `fetch_since` 过滤逻辑——无日期条目不再被错误跳过（无法判定为旧则放行）；新增 JSON Feed 1.0/1.1 格式自动检测与解析；`_parse_date` 增加 ISO 字符串回退；后端 309 测试 + 前端 225 测试全通过
 - **信源自定义抓取频率**: 基于已有 `fetch_interval_minutes` 字段实现完整的信源级别更新间隔控制——pipeline 新增 `respect_source_intervals` 参数，定时调度时检查每个信源的 `last_fetched_at + interval` 跳过未到期信源，手动触发仍抓取全部；APScheduler tick 间隔缩短至 5 分钟确保短间隔信源被及时轮询；前端 SourceManager 新增更新频率选择器（5分钟~24小时）支持添加和内联编辑
@@ -93,10 +95,11 @@
 ## [Next Steps]
 1. 端到端验证 Scrapling 爬虫在实际 web 信源上的表现（静态 + Stealth 模式）
 2. 端到端验证 RSS 解析修复与 JSON Feed 在实际信源上的表现
-3. 端到端验证信源自定义更新频率在定时调度下的行为
+3. 端到端验证自动更新链路在真实 GitHub Release 下的行为（下载、安装、重启后说明展示）
 
 ## [Key Decisions / Context]
 - **爬虫底层库**: 从 httpx+BS4+Playwright 替换为 Scrapling——静态页面用 AsyncFetcher/FetcherSession（curl_cffi + TLS 伪装），动态页面用 AsyncStealthySession（Playwright + 反检测）；HTML 解析用 Scrapling Selector（lxml 内核，Scrapy 风格 CSS 伪元素），降噪用 lxml 直接 DOM 操作；Stealth 模式需额外执行 `scrapling install` 下载浏览器
+- **依赖兜底策略**: `lxml` 为网页降噪推荐依赖，已显式写入 `backend/requirements.txt`；若本地环境暂缺该包，`web_scraper.py` 会降级为轻量清洗路径以保证后端进程可启动
 - LLM 厂商注册表: 13 个厂商（openai/anthropic/deepseek/zhipu/minimax/xai/mistral/groq/openrouter/dashscope/baichuan/gemini/ollama），支持厂商切换自动填充 Base URL + 静态模型列表 + API 模型发现
 - 模型发现策略: discover_models 返回全部动态模型（不再限制 2 个），仅在无 API Key 时回退 static_models
 - 前端 LLM 配置交互: 选厂商 → 自动填充 Base URL → 输入 API Key → 发现/选择模型 → 保存；像 opencode 一样简单
@@ -122,6 +125,7 @@
 - **PyInstaller**: 使用 --onedir 模式打包后端，hidden-import 覆盖全部 backend.* 子模块 + 关键三方库
 - **用户配置**: .env 存放于系统 userData 目录，首次启动从 default.env 模板复制；菜单栏提供"打开配置目录"快捷入口
 - **自动更新策略**: 暂不使用 CI/CD，所有平台统一通过 GitHub API 查询最新 Release tag 对比版本号；手动检查无论结果均显示反馈弹窗，启动自动检查仅新版本才弹窗；electron-updater 代码保留，待 CI/CD 就绪后 Win/Linux 可启用静默下载安装
+- **更新说明策略**: 发布说明优先使用 `pnpm release` 输入的更新要点并写入 GitHub Release；客户端更新提示优先展示 Release 正文，缺失时回退到版本间 commit message，对应说明会在安装前落盘并在重启后首次展示
 - **窗口关闭行为**: 点击关闭按钮弹出三选对话框（最小化到托盘/完全退出/取消），isQuitting 标志位控制真正退出时跳过拦截；系统托盘使用 build/tray-icon.png，右键菜单含「显示主窗口」「完全退出」
 - **开机自启动**: 使用 Electron 内置 app.setLoginItemSettings/getLoginItemSettings，跨平台兼容（Windows 注册表/macOS 登录项/Linux XDG autostart）；前端设置页「系统集成」卡片仅在 Electron 环境显示
 - **信源 URL 编辑**: 复用 InlineEdit 组件，支持点击编辑保存，后端 PATCH /api/sources/:id 支持 url 字段更新

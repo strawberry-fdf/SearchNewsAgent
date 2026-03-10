@@ -52,6 +52,12 @@ import {
   type CacheSourceStat,
   type LlmConfig,
 } from "@/lib/api";
+import {
+  createPreviewReleaseNotes,
+  createPreviewUpdateResult,
+  POST_UPDATE_RELEASE_NOTES_PREVIEW_EVENT,
+  UPDATE_TOAST_PREVIEW_EVENT,
+} from "@/lib/electron";
 import { useTheme } from "./ThemeProvider";
 
 // ── Toggle switch ──
@@ -97,25 +103,6 @@ function Toggle({
 
 // ── 关于与更新组件 ──
 
-/** 声明 window.electronAPI 类型 */
-declare global {
-  interface Window {
-    electronAPI?: {
-      isElectron: boolean;
-      platform: string;
-      version: string;
-      checkForUpdates: () => Promise<{ status: string; version?: string; message?: string }>;
-      startUpdateInstallation?: () => Promise<{ status: string; message?: string }>;
-      openExternal: (url: string) => void;
-      getAutoLaunch: () => Promise<{ enabled: boolean }>;
-      setAutoLaunch: (enabled: boolean) => Promise<{ enabled: boolean }>;
-      onUpdateCheckResult: (cb: (data: { type: string; version?: string; currentVersion?: string; downloadUrl?: string; updateMode?: string; message?: string; manual?: boolean }) => void) => void;
-      onUpdateProgress: (cb: (data: { percent: number }) => void) => void;
-      onUpdateDownloading: (cb: (data: { version: string }) => void) => void;
-    };
-  }
-}
-
 function AboutAndUpdate() {
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<string | null>(null);
@@ -130,6 +117,7 @@ function AboutAndUpdate() {
     linux: "Linux",
     web: "Web",
   };
+  const canPreviewUpdateUi = process.env.NODE_ENV !== "production";
 
   // 监听主进程返回的检查结果，更新按钮状态
   useEffect(() => {
@@ -160,6 +148,22 @@ function AboutAndUpdate() {
       setResult("检查更新失败，请稍后重试");
       setChecking(false);
     }
+  };
+
+  const handlePreviewUpdateToast = () => {
+    window.dispatchEvent(
+      new CustomEvent(UPDATE_TOAST_PREVIEW_EVENT, {
+        detail: createPreviewUpdateResult(),
+      })
+    );
+  };
+
+  const handlePreviewReleaseNotes = () => {
+    window.dispatchEvent(
+      new CustomEvent(POST_UPDATE_RELEASE_NOTES_PREVIEW_EVENT, {
+        detail: createPreviewReleaseNotes(),
+      })
+    );
   };
 
   return (
@@ -195,6 +199,29 @@ function AboutAndUpdate() {
         <p className="text-xs text-dark-muted bg-dark-surface rounded-lg px-3 py-2">
           {result}
         </p>
+      )}
+
+      {canPreviewUpdateUi && (
+        <div className="grid gap-2 rounded-xl border border-dashed border-dark-border bg-dark-surface/60 p-3">
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-dark-text">本地预览</p>
+            <p className="text-xs text-dark-muted">开发环境可直接预览更新提示和更新后说明窗口，无需真实发版或触发安装。</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={handlePreviewUpdateToast}
+              className="rounded-lg border border-dark-border px-3 py-1.5 text-xs text-dark-text transition-colors hover:bg-dark-card"
+            >
+              预览更新提示
+            </button>
+            <button
+              onClick={handlePreviewReleaseNotes}
+              className="rounded-lg border border-dark-border px-3 py-1.5 text-xs text-dark-text transition-colors hover:bg-dark-card"
+            >
+              预览更新说明
+            </button>
+          </div>
+        </div>
       )}
 
       <div className="pt-2 border-t border-dark-border">

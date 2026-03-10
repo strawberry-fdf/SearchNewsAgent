@@ -3,10 +3,14 @@
  * 覆盖布局渲染、Tab 切换、信源面板显隐、跨组件协作等场景。
  */
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Home from "@/app/page";
 import { createStats, createSource, createSourceCount, createArticlesResponse, createArticleList, createAppSettings, createFilterPreset, createCacheStats, createLlmConfig, createPipelineStatus } from "./fixtures";
+import {
+  POST_UPDATE_RELEASE_NOTES_PREVIEW_EVENT,
+  createPreviewReleaseNotes,
+} from "@/lib/electron";
 
 // Mock 所有子组件依赖的 API 调用
 vi.mock("@/lib/api", () => ({
@@ -242,6 +246,59 @@ describe("Home — 信源面板显隐", () => {
     await user.click(screen.getByText("设置"));
     await waitFor(() => {
       expect(screen.queryByPlaceholderText("搜索订阅源...")).not.toBeInTheDocument();
+    });
+  });
+});
+
+describe("Home — 更新后说明面板", () => {
+  it("收到本地预览事件时展示更新说明窗口", async () => {
+    render(<Home />);
+
+    await waitFor(() => {
+      expect(screen.getByText("精选资讯")).toBeInTheDocument();
+    });
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(POST_UPDATE_RELEASE_NOTES_PREVIEW_EVENT, {
+          detail: createPreviewReleaseNotes(),
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("本次更新内容")).toBeInTheDocument();
+      expect(screen.getByText("桌面端更新提示新增下载进度反馈，安装完成后会自动重新打开应用。")).toBeInTheDocument();
+    });
+  });
+
+  it("Electron 首次启动存在待展示说明时自动弹出", async () => {
+    Object.defineProperty(window, "electronAPI", {
+      writable: true,
+      configurable: true,
+      value: {
+        isElectron: true,
+        platform: "darwin",
+        version: "1.0.0",
+        checkForUpdates: vi.fn(async () => ({ status: "checking" })),
+        openExternal: vi.fn(),
+        getAutoLaunch: vi.fn(async () => ({ enabled: false })),
+        setAutoLaunch: vi.fn(async () => ({ enabled: false })),
+        getPostUpdateReleaseNotes: vi.fn(async () => ({
+          releaseNotes: createPreviewReleaseNotes(),
+        })),
+        dismissPostUpdateReleaseNotes: vi.fn(async () => ({ status: "ok" })),
+        onUpdateCheckResult: vi.fn(),
+        onUpdateProgress: vi.fn(),
+        onUpdateDownloading: vi.fn(),
+      },
+    });
+
+    render(<Home />);
+
+    await waitFor(() => {
+      expect(screen.getByText("本次更新内容")).toBeInTheDocument();
+      expect(screen.getByText("AgentNews v9.9.9-preview")).toBeInTheDocument();
     });
   });
 });

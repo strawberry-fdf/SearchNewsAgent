@@ -26,6 +26,7 @@ import { confirm, input, select } from "@inquirer/prompts";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const ROOT = resolve(__dirname, "..");
+const RELEASE_METADATA_PATH = resolve(ROOT, ".release-metadata.json");
 
 // ── 解析参数 ─────────────────────────────────────────────────
 const argv = process.argv.slice(2).filter((arg) => arg !== "--");
@@ -39,6 +40,7 @@ const skipPush = argv.includes("--skip-push") || argv.includes("--no-push");
 const allowDirty = argv.includes("--allow-dirty") || yesMode;
 const messageIndex = argv.findIndex((a) => a === "--message" || a === "-m");
 const customCommitMessage = messageIndex >= 0 ? argv[messageIndex + 1] : "";
+const cliReleaseNotes = collectFlagValues(["--note", "-n"]);
 
 // ── 工具函数 ──────────────────────────────────────────────────
 const c = {
@@ -60,6 +62,17 @@ function runSilent(cmd) {
   } catch { return ""; }
 }
 
+function collectFlagValues(flags) {
+  const values = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (flags.includes(argv[i]) && argv[i + 1]) {
+      values.push(argv[i + 1].trim());
+      i++;
+    }
+  }
+  return values.filter(Boolean);
+}
+
 // ── 版本号工具 ────────────────────────────────────────────────
 function parseVersion(ver) {
   const match = ver.match(/^(\d+)\.(\d+)\.(\d+)$/);
@@ -75,6 +88,78 @@ function bumpVersion(current, type) {
     case "patch": return `${v.major}.${v.minor}.${v.patch + 1}`;
     default: throw new Error(`未知 bump 类型: ${type}`);
   }
+}
+
+function shouldIgnoreCommitMessage(message) {
+  return [
+    /^chore\(release\):/i,
+    /^release\s+v?\d+/i,
+    /^merge\s+/i,
+  ].some((pattern) => pattern.test(message));
+}
+
+function collectFallbackReleaseNotes(fromTag) {
+  const range = fromTag ? `${fromTag}..HEAD` : "HEAD~20..HEAD";
+  const logs = runSilent(`git --no-pager log ${range} --format="%s" --no-merges`);
+  if (!logs) return [];
+  return logs
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !shouldIgnoreCommitMessage(line))
+    .slice(0, 12);
+}
+
+function formatReleaseNotesSection(notes) {
+  if (notes.length === 0) return "";
+  return `### 发布说明\n${notes.map((note) => `- ${note}`).join("\n")}\n\n`;
+}
+
+function buildReleaseBody(notes, changelogEntry) {
+  const sections = [];
+  if (notes.length > 0) {
+    sections.push("## 更新说明\n", notes.map((note) => `- ${note}`).join("\n"));
+  }
+  if (changelogEntry.trim()) {
+    sections.push("## 变更摘要\n", changelogEntry.trim());
+  }
+  return `${sections.join("\n\n")}\n`;
+}
+
+function writeReleaseMetadata(payload) {
+  writeFileSync(RELEASE_METADATA_PATH, JSON.stringify(payload, null, 2) + "\n", "utf-8");
+}
+
+async function promptReleaseNotes(fallbackNotes) {
+  if (cliReleaseNotes.length > 0) {
+    return { notes: cliReleaseNotes, source: "cli" };
+  }
+
+  if (yesMode) {
+    return {
+      notes: fallbackNotes,
+      source: fallbackNotes.length > 0 ? "fallback-commits" : "default",
+    };
+  }
+
+  console.log(`${c.dim}输入本次版本的更新要点，直接回车结束。若不输入，将自动回退到版本间 commit message。${c.reset}`);
+  const notes = [];
+  while (true) {
+    const value = (await input({
+      message: notes.length === 0 ? "更新要点 1（可留空）" : `更新要点 ${notes.length + 1}（留空结束）`,
+    })).trim();
+    if (!value) break;
+    notes.push(value);
+  }
+
+  if (notes.length > 0) {
+    return { notes, source: "manual" };
+  }
+
+  return {
+    notes: fallbackNotes,
+    source: fallbackNotes.length > 0 ? "fallback-commits" : "default",
+  };
 }
 
 // ── 读写 package.json ─────────────────────────────────────────
@@ -179,6 +264,11 @@ async function main() {
 
   console.log(`${c.dim}新版本:${c.reset}   ${c.green}${c.bold}v${newVersion}${c.reset}\n`);
 
+  const lastTag = runSilent("git describe --tags --abbrev=0 2>/dev/null");
+  const fallbackReleaseNotes = collectFallbackReleaseNotes(lastTag);
+  const { notes: releaseNotes, source: releaseNotesSource } = await promptReleaseNotes(fallbackReleaseNotes);
+  const releaseTitle = `AgentNews v${newVersion}`;
+
   const defaultCommitMessage = `chore(release): v${newVersion}`;
   let commitMessage = customCommitMessage || defaultCommitMessage;
   if (!customCommitMessage && !yesMode) {
@@ -193,6 +283,13 @@ async function main() {
   if (!yesMode) {
     console.log(`${c.dim}发布预览: v${currentVersion} -> v${newVersion}${c.reset}`);
     console.log(`${c.dim}提交信息: ${commitMessage}${c.reset}`);
+    console.log(`${c.dim}Release 标题: ${releaseTitle}${c.reset}`);
+    if (releaseNotes.length > 0) {
+      console.log(`${c.dim}Release 说明:${c.reset}`);
+      releaseNotes.forEach((note) => console.log(`${c.dim}  • ${note}${c.reset}`));
+    } else {
+      console.log(`${c.dim}Release 说明: 使用默认占位文案${c.reset}`);
+    }
     const shouldContinue = await confirm({
       message: "确认继续发布？",
       default: true,
@@ -237,13 +334,13 @@ async function main() {
   // ── 2. 生成 CHANGELOG 条目 ──
   console.log(`\n${c.cyan}[2/5]${c.reset} 生成 CHANGELOG 条目...`);
 
-  const lastTag = runSilent("git describe --tags --abbrev=0 2>/dev/null");
   const changelogEntry = collectChangelog(lastTag);
   const dateStr = new Date().toISOString().split("T")[0];
 
   const changelogPath = resolve(ROOT, "CHANGELOG.md");
   const header = `## [${newVersion}] - ${dateStr}\n\n`;
-  const entry = changelogEntry || "- 版本更新\n\n";
+  const releaseNotesSection = formatReleaseNotesSection(releaseNotes);
+  const entry = releaseNotesSection + (changelogEntry || "- 版本更新\n\n");
 
   if (existsSync(changelogPath)) {
     const existing = readFileSync(changelogPath, "utf-8");
@@ -253,6 +350,25 @@ async function main() {
     if (!dryRun) writeFileSync(changelogPath, content, "utf-8");
   }
   console.log(`  ${c.green}✓${c.reset} CHANGELOG.md 已更新`);
+
+  const releaseBody = buildReleaseBody(
+    releaseNotes.length > 0 ? releaseNotes : ["本次版本已完成发布，详细变更请查看提交记录。"],
+    changelogEntry
+  );
+  const releaseMetadata = {
+    version: newVersion,
+    tag: `v${newVersion}`,
+    previousTag: lastTag || null,
+    title: releaseTitle,
+    notes: releaseNotes,
+    notesSource: releaseNotesSource,
+    body: releaseBody,
+    generatedAt: new Date().toISOString(),
+  };
+  if (!dryRun) {
+    writeReleaseMetadata(releaseMetadata);
+  }
+  console.log(`  ${c.green}✓${c.reset} .release-metadata.json 已更新`);
 
   if (changelogEntry) {
     console.log(`${c.dim}${changelogEntry}${c.reset}`);
