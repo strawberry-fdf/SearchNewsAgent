@@ -37,6 +37,7 @@ const SUPPORTS_IN_APP_UPDATE = process.platform === "win32" || process.platform 
 
 let backendProcess = null;
 let mainWindow = null;
+let updateWindow = null;
 let tray = null;
 let isQuitting = false;
 let isUpdateDownloading = false;
@@ -284,6 +285,54 @@ function createMainWindow() {
   });
 
   return mainWindow;
+}
+
+/**
+ * 创建更新进度小窗口（隐藏主窗口后展示）。
+ */
+function createUpdateWindow() {
+  if (updateWindow && !updateWindow.isDestroyed()) {
+    updateWindow.focus();
+    return updateWindow;
+  }
+
+  const windowIconPath = getIconPath("icon.png");
+  updateWindow = new BrowserWindow({
+    width: 380,
+    height: 200,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    frame: false,
+    transparent: false,
+    alwaysOnTop: true,
+    title: "AgentNews 更新中",
+    backgroundColor: "#12121e",
+    icon: fs.existsSync(windowIconPath) ? windowIconPath : undefined,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+  });
+
+  updateWindow.loadFile(path.join(__dirname, "update.html"));
+
+  updateWindow.on("closed", () => {
+    updateWindow = null;
+  });
+
+  return updateWindow;
+}
+
+/**
+ * 关闭更新进度窗口（清理引用）。
+ */
+function closeUpdateWindow() {
+  if (updateWindow && !updateWindow.isDestroyed()) {
+    updateWindow.close();
+  }
+  updateWindow = null;
 }
 
 /**
@@ -901,14 +950,20 @@ function setupElectronUpdater() {
 
   autoUpdater.on("download-progress", (progress) => {
     log(`下载进度: ${progress.percent.toFixed(1)}%`);
-    if (mainWindow) {
-      mainWindow.webContents.send("update-progress", {
-        version: availableUpdateContext?.version,
-        percent: progress.percent,
-        transferred: progress.transferred,
-        total: progress.total,
-        bytesPerSecond: progress.bytesPerSecond,
-      });
+    const payload = {
+      version: availableUpdateContext?.version,
+      percent: progress.percent,
+      transferred: progress.transferred,
+      total: progress.total,
+      bytesPerSecond: progress.bytesPerSecond,
+    };
+    // 向更新进度小窗口发送进度
+    if (updateWindow && !updateWindow.isDestroyed()) {
+      updateWindow.webContents.send("update-progress", payload);
+    }
+    // 同时保持向主窗口发送（兼容未切换到小窗口的场景）
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("update-progress", payload);
     }
   });
 
@@ -928,6 +983,10 @@ function setupElectronUpdater() {
     };
     persistPostUpdateReleaseNotes(releaseContext);
     try {
+      // 通知更新进度窗口：即将安装
+      if (updateWindow && !updateWindow.isDestroyed()) {
+        updateWindow.webContents.send("update-installing");
+      }
       isQuitting = true;
       sendUpdateResult({
         type: "installing",
@@ -936,9 +995,17 @@ function setupElectronUpdater() {
         message: "更新包已下载完成，正在关闭并安装…",
         releaseNotes: releaseContext,
       }, true);
-      autoUpdater.quitAndInstall(true, true);
+      // 短暂延迟让用户看到"正在安装"状态
+      setTimeout(() => {
+        autoUpdater.quitAndInstall(true, true);
+      }, 1500);
     } catch (err) {
       log(`执行安装失败: ${err.message}`);
+      // 安装失败时恢复主窗口
+      closeUpdateWindow();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.show();
+      }
       sendUpdateResult({ type: "error", message: "安装更新失败，请稍后重试" }, true);
     }
   });
@@ -948,6 +1015,12 @@ function setupElectronUpdater() {
     log(`自动更新出错: ${err.message}`);
     const manual = isManualUpdaterCheck;
     isManualUpdaterCheck = false;
+
+    // 更新出错时关闭更新窗口、恢复主窗口
+    closeUpdateWindow();
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
 
     if (fallbackToGitHubRelease(err, manual)) {
       return;
@@ -1148,6 +1221,12 @@ ipcMain.handle("start-update-installation", async () => {
 
   try {
     isUpdateDownloading = true;
+    // 隐藏主窗口，弹出更新进度小窗口
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.hide();
+    }
+    createUpdateWindow();
+
     sendUpdateResult({
       type: "downloading",
       message: "正在准备下载更新包…",
@@ -1160,6 +1239,11 @@ ipcMain.handle("start-update-installation", async () => {
   } catch (err) {
     isUpdateDownloading = false;
     log(`开始下载更新失败: ${err.message}`);
+    // 下载失败时恢复主窗口
+    closeUpdateWindow();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+    }
     sendUpdateResult({ type: "error", message: "启动更新下载失败，请稍后重试" }, true);
     return { status: "error", message: "启动更新下载失败" };
   }

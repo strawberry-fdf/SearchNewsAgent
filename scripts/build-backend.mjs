@@ -152,6 +152,11 @@ const HIDDEN_IMPORTS = [
   'scrapling',
   'scrapling.fetchers',
   'scrapling.parser',
+  'browserforge',
+  'browserforge.headers',
+  'browserforge.fingerprints',
+  'browserforge.bayesian_network',
+  'apify_fingerprint_datapoints',
   'openai',
   'anthropic',
   'pydantic',
@@ -180,6 +185,12 @@ const COLLECT_SUBMODULES = [
   'httpcore',
   'scrapling',
   'lxml',
+];
+
+// 收集数据文件（非 .py 的资源文件: zip/json/xz 等）
+const COLLECT_DATA = [
+  'browserforge',                   // injectors/data/utils.js.xz
+  'apify_fingerprint_datapoints',   // data/*.zip + data/*.json（browserforge 运行时依赖）
 ];
 
 // 排除不需要的模块（避免 collect-submodules 导入失败）
@@ -267,6 +278,7 @@ function main() {
     `--add-data=backend${DATA_SEP}backend`,
     ...HIDDEN_IMPORTS.map(m => `--hidden-import=${m}`),
     ...COLLECT_SUBMODULES.map(m => `--collect-submodules=${m}`),
+    ...COLLECT_DATA.map(m => `--collect-data=${m}`),
     ...EXCLUDE_MODULES.map(m => `--exclude-module=${m}`),
     `"${ENTRY_SCRIPT}"`,
   ];
